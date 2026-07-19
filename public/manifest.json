@@ -1,0 +1,9 @@
+{
+  "name": "돈카춘 광주고산점",
+  "short_name": "돈카춘",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#101418",
+  "theme_color": "#101418",
+  "icons": []
+}
