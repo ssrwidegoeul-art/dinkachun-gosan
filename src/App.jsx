@@ -17,6 +17,7 @@ const DOW_KR = ["일","월","화","수","목","금","토"];
 const POSITIONS = [
   {key:"점심-주방1",section:"점심",role:"주방1"},
   {key:"점심-주방2",section:"점심",role:"주방2"},
+  {key:"점심-주방3",section:"점심",role:"주방3"},
   {key:"점심-홀",section:"점심",role:"홀"},
   {key:"저녁-주방1",section:"저녁",role:"주방1"},
   {key:"저녁-주방2",section:"저녁",role:"주방2"},
@@ -25,13 +26,15 @@ const POSITIONS = [
 ];
 
 const INIT_SCHEDULE = {
-  "점심-주방1": {월:1,화:1,수:1,목:1,금:1,토:9,일:9},
-  "점심-주방2": {월:2,화:2,수:2,목:100,금:100,토:100,일:100},
-  "점심-홀":    {월:3,화:3,수:3,목:3,금:3,토:11,일:11},
-  "저녁-주방1": {월:1,화:1,수:1,목:100,금:100,토:100,일:100},
-  "저녁-주방2": {월:-1,화:-1,수:-1,목:4,금:4,토:10,일:10},
-  "저녁-주방3": {월:5,화:5,수:4,목:7,금:7,토:9,일:9},
-  "저녁-홀":    {월:8,화:12,수:12,목:13,금:13,토:8,일:8},
+  // 엑셀 근무표 기준
+  "점심-주방1": {월:1,화:1,수:1,목:1,금:1,토:9,일:9},        // 승룡 월~금 / 세혁 토일
+  "점심-주방2": {월:2,화:2,수:2,목:100,금:100,토:100,일:100}, // 나래 월화수 / 현민 목~일
+  "점심-주방3": {월:-1,화:-1,수:-1,목:-1,금:-1,토:10,일:10},  // 병무 토일
+  "점심-홀":    {월:3,화:3,수:3,목:3,금:3,토:11,일:11},       // 자윤 월~금 / 서빈 토일
+  "저녁-주방1": {월:1,화:1,수:1,목:-1,금:-1,토:-1,일:-1},     // 승룡 월화수
+  "저녁-주방2": {월:5,화:5,수:5,목:100,금:100,토:100,일:100}, // 정희 월화수 / 현민 목~일
+  "저녁-주방3": {월:7,화:7,수:7,목:7,금:7,토:9,일:9},         // 정은 월~금 / 세혁 토일
+  "저녁-홀":    {월:8,화:12,수:12,목:13,금:13,토:10,일:10},   // 인호/혜지/호준/병무
 };
 
 const INIT_STAFF = [
@@ -651,7 +654,7 @@ export default function App(){
     (async()=>{
       try{
         const [r,rs,rsc,rov,rdov]=await Promise.all([
-          kvGet("dc5-sales"),kvGet("dc5-staff"),kvGet("dc5-sched"),kvGet("dc5-ov"),kvGet("dc5-dov")
+          kvGet("dc5-sales"),kvGet("dc5-staff"),kvGet("dc6-sched"),kvGet("dc5-ov"),kvGet("dc5-dov")
         ]);
         if(r) setSales({...EXCEL_SALES,...r});
         if(rs) setStaff(rs);
@@ -680,7 +683,7 @@ export default function App(){
               }
             });
           });
-          save("dc5-sched",nsc);
+          save("dc6-sched",nsc);
           return nsc;
         });
       }
@@ -691,7 +694,7 @@ export default function App(){
   const updateCell=(posKey,day,staffId)=>{
     setSchedule(prev=>{
       const ns={...prev,[posKey]:{...prev[posKey],[day]:staffId}};
-      save("dc5-sched",ns);
+      save("dc6-sched",ns);
       return ns;
     });
     setCellModal(null);
@@ -727,7 +730,7 @@ export default function App(){
 
   // 자동정렬: 점심+저녁 연속 근무자를 상단 슬롯으로 (역할은 유동적, 슬롯 번호는 편의상)
   const autoArrange=()=>{
-    const KL=["점심-주방1","점심-주방2"];
+    const KL=["점심-주방1","점심-주방2","점심-주방3"];
     const KD=["저녁-주방1","저녁-주방2","저녁-주방3"];
     const ns=JSON.parse(JSON.stringify(schedule));
     DAYS_ALL.forEach(day=>{
@@ -744,7 +747,7 @@ export default function App(){
       KL.forEach((k,i)=>ns[k][day]=newLunch[i]);
       KD.forEach((k,i)=>ns[k][day]=newDinner[i]);
     });
-    setSchedule(ns); save("dc5-sched",ns);
+    setSchedule(ns); save("dc6-sched",ns);
   };
 
   // 직원 추가 / 삭제
@@ -765,7 +768,7 @@ export default function App(){
     setSchedule(prev=>{
       const nsc=JSON.parse(JSON.stringify(prev));
       POSITIONS.forEach(pos=>DAYS_ALL.forEach(day=>{if(nsc[pos.key][day]===id)nsc[pos.key][day]=-1;}));
-      save("dc5-sched",nsc);
+      save("dc6-sched",nsc);
       return nsc;
     });
   };
@@ -822,11 +825,11 @@ export default function App(){
 
   const renderScheduleGrid=()=>{
     const SECTIONS=[
-      {label:"점심",icon:"🌞",color:C.accent2,rows:["점심-주방1","점심-주방2","점심-홀"]},
+      {label:"점심",icon:"🌞",color:C.accent2,rows:["점심-주방1","점심-주방2","점심-주방3","점심-홀"]},
       {label:"저녁",icon:"🌆",color:C.blue,rows:["저녁-주방1","저녁-주방2","저녁-주방3","저녁-홀"]},
     ];
-    const ROW_LABEL={"점심-주방1":"주방①","점심-주방2":"주방②","점심-홀":"홀","저녁-주방1":"주방①","저녁-주방2":"주방②","저녁-주방3":"주방③","저녁-홀":"홀"};
-    const LD={"점심-주방1":"저녁-주방1","점심-주방2":"저녁-주방2","점심-홀":"저녁-홀"};
+    const ROW_LABEL={"점심-주방1":"주방①","점심-주방2":"주방②","점심-주방3":"주방③","점심-홀":"홀","저녁-주방1":"주방①","저녁-주방2":"주방②","저녁-주방3":"주방③","저녁-홀":"홀"};
+    const LD={"점심-주방1":"저녁-주방1","점심-주방2":"저녁-주방2","점심-주방3":"저녁-주방3","점심-홀":"저녁-홀"};
     const H=42,GAP=2;
     const weekDates=Array.from({length:7},(_,i)=>{const d=new Date(weekAnchor);d.setDate(d.getDate()+i);return d;});
     const isThisWeek=getMonday(new Date()).getTime()===weekAnchor.getTime();
@@ -1342,10 +1345,19 @@ export default function App(){
                 <div style={{fontSize:18,fontWeight:700}}>주간 근무표</div>
                 <div style={{fontSize:11,color:C.text2,marginTop:2}}>날짜 기반 · 근태 변동 자동 반영 · 슬롯 번호는 편의상</div>
               </div>
-              <button onClick={autoArrange}
-                style={{background:C.s2,border:`1px solid ${C.accent}`,color:C.accent,borderRadius:10,padding:"8px 12px",fontSize:11,fontWeight:600,cursor:"pointer",flexShrink:0}}>
-                ↕ 자동정렬
-              </button>
+              <div style={{display:"flex",gap:6,flexShrink:0}}>
+                <button onClick={()=>{
+                  if(!confirm("근무표를 기본(엑셀 표) 상태로 초기화할까요?\n날짜별 변동 기록은 유지됩니다.")) return;
+                  setSchedule(JSON.parse(JSON.stringify(INIT_SCHEDULE)));
+                  save("dc6-sched",INIT_SCHEDULE);
+                }} style={{background:C.s2,border:`1px solid ${C.border}`,color:C.text2,borderRadius:10,padding:"8px 10px",fontSize:11,cursor:"pointer"}}>
+                  ↺ 초기화
+                </button>
+                <button onClick={autoArrange}
+                  style={{background:C.s2,border:`1px solid ${C.accent}`,color:C.accent,borderRadius:10,padding:"8px 12px",fontSize:11,fontWeight:600,cursor:"pointer"}}>
+                  ↕ 자동정렬
+                </button>
+              </div>
             </div>
             <div style={{fontSize:10,color:C.text3,marginTop:4}}>자동정렬: 점심~저녁 연속 근무자를 상단 슬롯으로 이동</div>
           </div>
