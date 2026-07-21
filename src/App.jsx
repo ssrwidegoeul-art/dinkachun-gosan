@@ -142,6 +142,13 @@ function calcPay(s){
 const byId=(list,id)=>(id==null||id===-1)?null:(list.find(s=>s.id===id)||null);
 const getMonday=(d)=>{const x=new Date(d);const dow=(x.getDay()+6)%7;x.setDate(x.getDate()-dow);x.setHours(0,0,0,0);return x;};
 const dateKeyOf=(d)=>`${d.getFullYear()}-${d.getMonth()+1}-${d.getDate()}`;
+// "11:00–14:00" 같은 문자열 → 시간(h). 어떤 대시/물결이든 허용
+const parseHours=(t)=>{
+  const m=/(\d{1,2}):(\d{2})\s*[^\d]{1,3}\s*(\d{1,2}):(\d{2})/.exec(t||"");
+  if(!m) return 0;
+  const a=+m[1]+(+m[2])/60, b=+m[3]+(+m[4])/60;
+  return Math.max(0,b-a);
+};
 
 // ==================== 외부 컴포넌트 (포커스 버그 수정) ====================
 
@@ -577,6 +584,7 @@ export default function App(){
   const [schedModal,setSchedModal]=useState(null);
   const [cellModal,setCellModal]=useState(null);
   const [weekAnchor,setWeekAnchor]=useState(getMonday(new Date()));
+  const [payDate,setPayDate]=useState(new Date());
   const [photoTab,setPhotoTab]=useState("매출");
   const [ready,setReady]=useState(false);
 
@@ -949,9 +957,196 @@ export default function App(){
     );
   };
 
+  // ══════════ 월별 실근무 정산 ══════════
+  const monthPayroll=(y,m)=>{
+    const last=new Date(y,m+1,0).getDate();
+    const R={}; // staffId → 집계
+    staff.forEach(s=>{R[s.id]={days:new Set(),hours:0,weeks:{},absent:[],extra:[],baseDays:0};});
+
+    for(let d=1;d<=last;d++){
+      const date=new Date(y,m,d);
+      const dk=dateKeyOf(date);
+      const dayName=DOW_KR[date.getDay()];
+      // 포지션별 기본/실제 배정
+      const baseIds=new Set(), actualIds=new Set();
+      const actualSlots={}; // staffId → Set(시간문자열)
+      POSITIONS.forEach(pos=>{
+        const baseId=schedule[pos.key]?.[dayName];
+        if(baseId!=null&&baseId!==-1) baseIds.add(baseId);
+        const ov=dayOverride[dk]?.[pos.key];
+        const actId=ov!==undefined?ov:baseId;
+        if(actId!=null&&actId!==-1){
+          actualIds.add(actId);
+          const st=byId(staff,actId);
+          if(st){
+            const t=pos.key.startsWith("점심")?st.lunchTime:st.dinnerTime;
+            if(t&&t!=="-"){
+              if(!actualSlots[actId]) actualSlots[actId]=new Set();
+              actualSlots[actId].add(t);
+            }
+          }
+        }
+      });
+      staff.forEach(s=>{
+        const r=R[s.id];
+        const inBase=baseIds.has(s.id), inAct=actualIds.has(s.id);
+        if(inBase) r.baseDays++;
+        if(inAct){
+          let h=0;
+          (actualSlots[s.id]||new Set()).forEach(t=>{h+=parseHours(t);});
+          if(h>=9) h-=1; // 종일 근무 휴게 1시간
+          r.hours+=h; r.days.add(d);
+          const wk=getMonday(date).getTime();
+          r.weeks[wk]=(r.weeks[wk]||0)+h;
+          if(!inBase) r.extra.push(d);
+        }else if(inBase){
+          r.absent.push(d);
+        }
+      });
+    }
+
+    // 급여 계산
+    return staff.map(s=>{
+      const r=R[s.id];
+      if(s.type==="사장") return {s,r,isOwner:true};
+      if(s.type==="월급"){
+        const daily=r.baseDays>0?s.wage/r.baseDays:0;
+        const refDeduct=Math.round(daily*r.absent.length);
+        const p=calcPay(s);
+        return {s,r,gross:s.wage,base:s.wage,weekly:0,deduct:p.deduct,net:p.net,refDeduct,empAdd:p.empAdd};
+      }
+      const base=Math.round(r.hours*s.wage);
+      let weekly=0;
+      Object.values(r.weeks).forEach(wh=>{
+        if(wh>=15) weekly+=Math.round((Math.min(wh,40)/40)*8*s.wage);
+      });
+      const gross=base+weekly;
+      const rate=s.insurance==="4대보험"?0.094:0.033;
+      const deduct=Math.round(gross*rate);
+      const empAdd=s.insurance==="4대보험"?Math.round(gross*0.09):0;
+      return {s,r,gross,base,weekly,deduct,net:gross-deduct,empAdd};
+    });
+  };
+
+  const renderPayroll=()=>{
+    const y=payDate.getFullYear(),m=payDate.getMonth();
+    const rows=monthPayroll(y,m);
+    const workers=rows.filter(x=>!x.isOwner);
+    const totalGross=workers.reduce((a,x)=>a+x.gross,0);
+    const totalEmp=workers.reduce((a,x)=>a+x.gross+(x.empAdd||0),0);
+    const contractTotal=workers.reduce((a,x)=>a+calcPay(x.s).gross,0);
+    const fmtDates=(arr)=>arr.map(d=>`${d}일`).join(", ");
+
+    return (
+      <div>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+          <button onClick={()=>setPayDate(new Date(y,m-1,1))}
+            style={{background:C.s2,border:`1px solid ${C.border}`,color:C.text,padding:"6px 12px",borderRadius:8,cursor:"pointer",fontSize:16}}>‹</button>
+          <div style={{fontSize:17,fontWeight:700}}>{y}년 {m+1}월 급여 정산</div>
+          <button onClick={()=>setPayDate(new Date(y,m+1,1))}
+            style={{background:C.s2,border:`1px solid ${C.border}`,color:C.text,padding:"6px 12px",borderRadius:8,cursor:"pointer",fontSize:16}}>›</button>
+        </div>
+
+        {/* 요약 */}
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:14,marginBottom:12}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+            <div>
+              <div style={{fontSize:10,color:C.text2}}>실근무 기준 지급총액</div>
+              <div style={{fontSize:17,fontWeight:700,color:C.accent}}>{(totalGross/10000).toFixed(1)}만원</div>
+            </div>
+            <div>
+              <div style={{fontSize:10,color:C.text2}}>사업주 실부담 (보험 포함)</div>
+              <div style={{fontSize:17,fontWeight:700,color:C.red}}>{(totalEmp/10000).toFixed(1)}만원</div>
+            </div>
+          </div>
+          <div style={{fontSize:10,color:C.text3,borderTop:`1px solid ${C.border}`,paddingTop:8,marginTop:10}}>
+            계약(고정 스케줄) 기준: {(contractTotal/10000).toFixed(1)}만원
+            {Math.abs(totalGross-contractTotal)>1000&&(
+              <span style={{color:totalGross>contractTotal?C.red:C.green,fontWeight:600}}>
+                {" "}({totalGross>contractTotal?"+":""}{((totalGross-contractTotal)/10000).toFixed(1)}만)
+              </span>
+            )}
+          </div>
+          <div style={{fontSize:9,color:C.text3,marginTop:4}}>근태 달력의 결근·대타 변동이 자동 반영됩니다 · 종일 근무는 휴게 1시간 제외</div>
+        </div>
+
+        {/* 직원별 정산 카드 */}
+        {rows.map(({s,r,gross,base,weekly,deduct,net,refDeduct,empAdd,isOwner})=>(
+          <div key={s.id} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:14,marginBottom:10}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <div style={{width:10,height:10,borderRadius:3,background:s.color}}/>
+                <span style={{fontSize:14,fontWeight:700,color:s.color}}>{s.name}</span>
+                {isOwner&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:6,background:C.accent+"22",color:C.accent,fontWeight:700}}>사장</span>}
+                {s.type==="월급"&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:6,background:C.s3,color:C.text2}}>월급제</span>}
+              </div>
+              {!isOwner&&<span style={{fontSize:15,fontWeight:700,color:s.color}}>{(net/10000).toFixed(1)}만</span>}
+            </div>
+
+            <div style={{fontSize:11,color:C.text2,marginBottom:6}}>
+              실근무 <b style={{color:C.text}}>{r.days.size}일 · {r.hours.toFixed(1)}h</b>
+              {r.baseDays>0&&<span style={{color:C.text3}}> (계약 {r.baseDays}일)</span>}
+            </div>
+
+            {r.absent.length>0&&(
+              <div style={{fontSize:10,color:C.red,marginBottom:3}}>❌ 결근·빠짐: {fmtDates(r.absent)}</div>
+            )}
+            {r.extra.length>0&&(
+              <div style={{fontSize:10,color:C.accent2,marginBottom:3}}>➕ 대타·추가: {fmtDates(r.extra)}</div>
+            )}
+
+            {!isOwner&&(
+              <div style={{background:C.s3,borderRadius:8,padding:10,marginTop:8}}>
+                {s.type==="월급"?(
+                  <>
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:11,padding:"3px 0"}}>
+                      <span style={{color:C.text2}}>월 고정급</span><span>{(s.wage/10000).toFixed(0)}만원</span>
+                    </div>
+                    {refDeduct>0&&(
+                      <div style={{display:"flex",justifyContent:"space-between",fontSize:11,padding:"3px 0"}}>
+                        <span style={{color:C.text2}}>결근 일할 차감 참고</span>
+                        <span style={{color:C.red}}>-{(refDeduct/10000).toFixed(1)}만원</span>
+                      </div>
+                    )}
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:11,padding:"3px 0"}}>
+                      <span style={{color:C.text2}}>공제(4대보험+세금)</span><span style={{color:C.red}}>-{(deduct/10000).toFixed(1)}만원</span>
+                    </div>
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:13,fontWeight:700,padding:"4px 0",borderTop:`1px solid ${C.border}`,marginTop:3}}>
+                      <span>실수령 (만근 기준)</span><span style={{color:s.color}}>{(net/10000).toFixed(1)}만원</span>
+                    </div>
+                  </>
+                ):(
+                  <>
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:11,padding:"3px 0"}}>
+                      <span style={{color:C.text2}}>기본급 ({r.hours.toFixed(1)}h × {s.wage.toLocaleString()}원)</span>
+                      <span>{(base/10000).toFixed(1)}만원</span>
+                    </div>
+                    {weekly>0&&(
+                      <div style={{display:"flex",justifyContent:"space-between",fontSize:11,padding:"3px 0"}}>
+                        <span style={{color:C.text2}}>주휴수당 (주15h↑)</span><span>+{(weekly/10000).toFixed(1)}만원</span>
+                      </div>
+                    )}
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:11,padding:"3px 0"}}>
+                      <span style={{color:C.text2}}>공제({s.insurance==="4대보험"?"9.4%":"3.3%"})</span>
+                      <span style={{color:C.red}}>-{(deduct/10000).toFixed(1)}만원</span>
+                    </div>
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:13,fontWeight:700,padding:"4px 0",borderTop:`1px solid ${C.border}`,marginTop:3}}>
+                      <span>실수령</span><span style={{color:s.color}}>{(net/10000).toFixed(1)}만원</span>
+                    </div>
+                  </>
+                )}
+                {empAdd>0&&<div style={{fontSize:9,color:C.text3,marginTop:3}}>사업주 보험 부담 +{(empAdd/10000).toFixed(1)}만 → 실부담 {((gross+empAdd)/10000).toFixed(1)}만원</div>}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  };
+
   const NAV=[{id:"dash",icon:"📊",label:"홈"},{id:"sales",icon:"💰",label:"매출"},
     {id:"schedule",icon:"📅",label:"근무표"},{id:"staff",icon:"👥",label:"직원"},
-    {id:"fixed",icon:"🧾",label:"고정비"},{id:"photo",icon:"📷",label:"사진"}];
+    {id:"pay",icon:"💵",label:"정산"},{id:"fixed",icon:"🧾",label:"고정비"},{id:"photo",icon:"📷",label:"사진"}];
 
   return (
     <div style={{background:C.bg,color:C.text,minHeight:"100vh",fontFamily:"'Apple SD Gothic Neo','Noto Sans KR',sans-serif",maxWidth:480,margin:"0 auto",paddingBottom:72}}>
@@ -1113,6 +1308,8 @@ export default function App(){
           </div>
           {staff.map(s=><StaffCard key={s.id} s={s} updateStaff={updateStaff} removeStaff={removeStaff}/>)}
         </>}
+
+        {page==="pay"&&renderPayroll()}
 
         {page==="fixed"&&<>
           <div style={{marginBottom:12}}><div style={{fontSize:18,fontWeight:700}}>월 고정비용</div></div>
