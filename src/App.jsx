@@ -188,7 +188,7 @@ function TimeRangePicker({value,onChange,allowDefault,accent}){
   );
 }
 
-function StaffCard({s,updateStaff,removeStaff,days,weeklyH,shiftOn,toggleShift}){
+function StaffCard({s,updateStaff,removeStaff,days,weeklyH,shiftOn,toggleShift,setPosition}){
   const p=calcPay(s,weeklyH);
   const [open,setOpen]=useState(false);
   const [showDT,setShowDT]=useState(false);
@@ -242,6 +242,23 @@ function StaffCard({s,updateStaff,removeStaff,days,weeklyH,shiftOn,toggleShift})
           <div style={{background:C.s3,borderRadius:10,padding:12,marginTop:12,marginBottom:12}}>
             <div style={{fontSize:11,fontWeight:600,color:C.text2,marginBottom:8}}>
               📅 근무 블럭 <span style={{fontSize:9,color:C.text3}}>(탭 → 근무표에 바로 반영)</span>
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:10}}>
+              <span style={{fontSize:10,color:C.text2,flexShrink:0}}>구역</span>
+              <button onClick={()=>setPosition(s.id,"kitchen")}
+                style={{flex:1,padding:"8px 8px",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",
+                  border:`1.5px solid ${s.position!=="hall"?s.color:C.border}`,
+                  background:s.position!=="hall"?s.color+"33":"transparent",
+                  color:s.position!=="hall"?s.color:C.text3}}>
+                🍳 주방
+              </button>
+              <button onClick={()=>setPosition(s.id,"hall")}
+                style={{flex:1,padding:"8px 8px",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",
+                  border:`1.5px solid ${s.position==="hall"?s.color:C.border}`,
+                  background:s.position==="hall"?s.color+"33":"transparent",
+                  color:s.position==="hall"?s.color:C.text3}}>
+                🙋 홀
+              </button>
             </div>
             <div style={{display:"grid",gridTemplateColumns:"32px repeat(7,1fr)",gap:3,alignItems:"center",marginBottom:12}}>
               <div/>
@@ -743,7 +760,7 @@ export default function App(){
     (async()=>{
       try{
         const [r,rs,rsc,rov,rdov]=await Promise.all([
-          kvGet("dc5-sales"),kvGet("dc5-staff"),kvGet("dc8-sched"),kvGet("dc5-ov"),kvGet("dc7-dov")
+          kvGet("dc5-sales"),kvGet("dc5-staff"),kvGet("dc8-sched"),kvGet("dc5-ov"),kvGet("dc9-dov")
         ]);
         if(r) setSales({...EXCEL_SALES,...r});
         if(rs) setStaff(rs);
@@ -786,11 +803,15 @@ export default function App(){
       save("dc8-sched",ns); return ns;
     });
   };
-  // 특정 날짜 인원 변경(대타)
+  // 특정 날짜 인원 변경(대타) — 고정 스케줄과 같아지면 변동 자동 해제
   const setDateModule=(dateKey,moduleKey,ids)=>{
+    const dayName=DOW_KR[new Date(dateKey.replace(/-/g,"/")).getDay()];
+    const base=schedule[moduleKey]?.[dayName]||[];
+    const same=JSON.stringify([...ids].sort())===JSON.stringify([...base].sort());
+    if(same){ clearDateModule(dateKey,moduleKey); return; }
     setDayOverride(prev=>{
       const ns={...prev,[dateKey]:{...prev[dateKey],[moduleKey]:ids}};
-      save("dc7-dov",ns); return ns;
+      save("dc9-dov",ns); return ns;
     });
   };
   const clearDateModule=(dateKey,moduleKey)=>{
@@ -799,7 +820,7 @@ export default function App(){
       delete cur[moduleKey];
       const ns={...prev};
       if(Object.keys(cur).length) ns[dateKey]=cur; else delete ns[dateKey];
-      save("dc7-dov",ns); return ns;
+      save("dc9-dov",ns); return ns;
     });
   };
 
@@ -873,6 +894,33 @@ export default function App(){
       save("dc8-sched",nsc); return nsc;
     });
   };
+  // 직원 구역(주방/홀) 변경: 근무표의 기존 배치도 함께 이동
+  const setPosition=(id,pos)=>{
+    setStaff(prev=>{
+      const ns=prev.map(s=>s.id===id
+        ?{...s,position:pos,role:pos==="hall"?"홀":(s.role==="홀"?"주방":s.role)}
+        :s);
+      save("dc5-staff",ns); return ns;
+    });
+    setSchedule(prev=>{
+      const nsc=JSON.parse(JSON.stringify(prev));
+      ["점심","저녁"].forEach(sec=>{
+        const from=sec+"-"+(pos==="hall"?"주방":"홀");
+        const to=sec+"-"+(pos==="hall"?"홀":"주방");
+        DAYS_ALL.forEach(day=>{
+          const fa=nsc[from]?.[day]||[];
+          if(fa.includes(id)){
+            nsc[from][day]=fa.filter(x=>x!==id);
+            const ta=nsc[to]?.[day]||[];
+            if(!ta.includes(id)) ta.push(id);
+            nsc[to][day]=ta;
+          }
+        });
+      });
+      save("dc8-sched",nsc); return nsc;
+    });
+  };
+
   const daysOf=(s)=>DAYS_ALL.filter(d=>shiftOn(s.id,d,"L")||shiftOn(s.id,d,"D"));
   const hoursOf=(s)=>{
     if(s.type==="사장") return 0;
@@ -1512,7 +1560,7 @@ export default function App(){
               </button>
             </div>
           </div>
-          {staff.map(s=><StaffCard key={s.id} s={s} updateStaff={updateStaff} removeStaff={removeStaff} days={daysOf(s)} weeklyH={hoursOf(s)} shiftOn={shiftOn} toggleShift={toggleShift}/>)}
+          {staff.map(s=><StaffCard key={s.id} s={s} updateStaff={updateStaff} removeStaff={removeStaff} days={daysOf(s)} weeklyH={hoursOf(s)} shiftOn={shiftOn} toggleShift={toggleShift} setPosition={setPosition}/>)}
         </>}
 
         {page==="pay"&&renderPayroll()}
