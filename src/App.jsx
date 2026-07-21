@@ -140,6 +140,8 @@ function calcPay(s){
 }
 
 const byId=(list,id)=>(id==null||id===-1)?null:(list.find(s=>s.id===id)||null);
+const getMonday=(d)=>{const x=new Date(d);const dow=(x.getDay()+6)%7;x.setDate(x.getDate()-dow);x.setHours(0,0,0,0);return x;};
+const dateKeyOf=(d)=>`${d.getFullYear()}-${d.getMonth()+1}-${d.getDate()}`;
 
 // ==================== 외부 컴포넌트 (포커스 버그 수정) ====================
 
@@ -208,6 +210,20 @@ function StaffCard({s,updateStaff,removeStaff}){
                     color:active?s.color:C.text3,fontWeight:active?700:400}}>{d}</button>
                 );
               })}
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+              <div>
+                <div style={{fontSize:10,color:C.text2,marginBottom:3}}>점심 근무시간</div>
+                <input defaultValue={s.lunchTime} onBlur={e=>updateStaff(s.id,{lunchTime:e.target.value.trim()||"-"})}
+                  placeholder="예: 11:00–14:00 (없으면 -)"
+                  style={{width:"100%",background:C.s2,border:`1px solid ${C.border}`,borderRadius:6,padding:"7px 8px",color:C.text,fontSize:11,outline:"none"}}/>
+              </div>
+              <div>
+                <div style={{fontSize:10,color:C.text2,marginBottom:3}}>저녁 근무시간</div>
+                <input defaultValue={s.dinnerTime} onBlur={e=>updateStaff(s.id,{dinnerTime:e.target.value.trim()||"-"})}
+                  placeholder="예: 16:30–21:30"
+                  style={{width:"100%",background:C.s2,border:`1px solid ${C.border}`,borderRadius:6,padding:"7px 8px",color:C.text,fontSize:11,outline:"none"}}/>
+              </div>
             </div>
             {s.type!=="사장"&&(
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
@@ -284,22 +300,42 @@ function StaffCard({s,updateStaff,removeStaff}){
   );
 }
 
-function CellEditModal({modal,staff,onSelect,onClose}){
+function CellEditModal({modal,staff,onApplyDate,onApplyFixed,onClose}){
+  const [mode,setMode]=useState("date");
+  useEffect(()=>{if(modal)setMode("date");},[modal]);
   if(!modal) return null;
-  const {posKey,day,staffId}=modal;
+  const {posKey,date,staffId}=modal;
   const current=byId(staff,staffId);
+  const dateLabel=`${date.getMonth()+1}/${date.getDate()} (${DOW_KR[date.getDay()]})`;
   return <>
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.75)",zIndex:100}}/>
     <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,
       background:C.surface,borderRadius:"20px 20px 0 0",padding:"16px 20px 28px",zIndex:101}}>
       <div style={{width:40,height:4,background:C.border,borderRadius:2,margin:"0 auto 14px"}}/>
-      <div style={{fontSize:15,fontWeight:700,marginBottom:4}}>{posKey} · {day}요일</div>
-      <div style={{fontSize:11,color:C.text3,marginBottom:14}}>현재: <span style={{color:current?.color||C.text2,fontWeight:600}}>{current?.name||"공석"}</span></div>
+      <div style={{fontSize:15,fontWeight:700,marginBottom:4}}>{posKey} · {dateLabel}</div>
+      <div style={{fontSize:11,color:C.text3,marginBottom:12}}>현재: <span style={{color:current?.color||C.text2,fontWeight:600}}>{current?.name||"공석"}</span></div>
+
+      {/* 적용 범위 선택 */}
+      <div style={{display:"flex",gap:6,marginBottom:12}}>
+        <button onClick={()=>setMode("date")}
+          style={{flex:1,padding:"9px 8px",borderRadius:8,fontSize:11,cursor:"pointer",fontWeight:600,
+            border:`1px solid ${mode==="date"?C.accent2:C.border}`,
+            background:mode==="date"?C.accent2+"22":C.s3,color:mode==="date"?C.accent2:C.text2}}>
+          이 날짜만 (대타)
+        </button>
+        <button onClick={()=>setMode("fixed")}
+          style={{flex:1,padding:"9px 8px",borderRadius:8,fontSize:11,cursor:"pointer",fontWeight:600,
+            border:`1px solid ${mode==="fixed"?C.accent:C.border}`,
+            background:mode==="fixed"?C.accent+"22":C.s3,color:mode==="fixed"?C.accent:C.text2}}>
+          고정 스케줄 (매주 {DOW_KR[date.getDay()]}요일)
+        </button>
+      </div>
+
       <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6}}>
-        <button onClick={()=>onSelect(-1)}
+        <button onClick={()=>mode==="date"?onApplyDate(-1):onApplyFixed(-1)}
           style={{padding:"10px 6px",borderRadius:8,border:`1px solid ${C.border}`,background:C.s3,color:C.text3,cursor:"pointer",fontSize:12}}>공석</button>
         {staff.map(s=>(
-          <button key={s.id} onClick={()=>onSelect(s.id)}
+          <button key={s.id} onClick={()=>mode==="date"?onApplyDate(s.id):onApplyFixed(s.id)}
             style={{padding:"10px 6px",borderRadius:8,border:`1px solid ${s.id===staffId?s.color:C.border}`,
               background:s.id===staffId?s.color+"22":C.s3,color:s.color,cursor:"pointer",fontSize:12,fontWeight:s.id===staffId?700:400}}>
             {s.name}
@@ -540,6 +576,7 @@ export default function App(){
   const [schedCalDate,setSchedCalDate]=useState(new Date(2026,6,1));
   const [schedModal,setSchedModal]=useState(null);
   const [cellModal,setCellModal]=useState(null);
+  const [weekAnchor,setWeekAnchor]=useState(getMonday(new Date()));
   const [photoTab,setPhotoTab]=useState("매출");
   const [ready,setReady]=useState(false);
 
@@ -708,56 +745,88 @@ export default function App(){
     }).filter(Boolean);
   })();
 
-  // ── 근무표 그리드 (인라인) ──
+  // ── 주간 근무표 (날짜 기반: 근태 변동 자동 반영) ──
+  const resolveCell=(posKey,date)=>{
+    const dk=dateKeyOf(date);
+    const ov=dayOverride[dk]?.[posKey];
+    if(ov!==undefined) return {id:ov,changed:true};
+    return {id:schedule[posKey]?.[DOW_KR[date.getDay()]]??null,changed:false};
+  };
+
   const renderScheduleGrid=()=>{
     const SECTIONS=[
-      {label:"점심",icon:"🌞",time:"10:00–15:00",color:C.accent2,rows:["점심-주방1","점심-주방2","점심-홀"]},
-      {label:"저녁",icon:"🌆",time:"16:30–21:30",color:C.blue,rows:["저녁-주방1","저녁-주방2","저녁-주방3","저녁-홀"]},
+      {label:"점심",icon:"🌞",color:C.accent2,rows:["점심-주방1","점심-주방2","점심-홀"]},
+      {label:"저녁",icon:"🌆",color:C.blue,rows:["저녁-주방1","저녁-주방2","저녁-주방3","저녁-홀"]},
     ];
     const ROW_LABEL={"점심-주방1":"주방①","점심-주방2":"주방②","점심-홀":"홀","저녁-주방1":"주방①","저녁-주방2":"주방②","저녁-주방3":"주방③","저녁-홀":"홀"};
     const LD={"점심-주방1":"저녁-주방1","점심-주방2":"저녁-주방2","점심-홀":"저녁-홀"};
-    const H=34,GAP=2;
+    const H=42,GAP=2;
+    const weekDates=Array.from({length:7},(_,i)=>{const d=new Date(weekAnchor);d.setDate(d.getDate()+i);return d;});
+    const isThisWeek=getMonday(new Date()).getTime()===weekAnchor.getTime();
 
+    const cellOf=(rowKey,i)=>{const r=resolveCell(rowKey,weekDates[i]);return {s:byId(staff,r.id),changed:r.changed};};
     const getHSpans=(rowKey)=>{
-      const arr=DAYS_ALL.map(d=>byId(staff,schedule[rowKey]?.[d]));
-      const spans=[]; let i=0;
+      const arr=weekDates.map((_,i)=>cellOf(rowKey,i));
+      const spans=[];let i=0;
       while(i<arr.length){
-        const s=arr[i];
-        if(!s){spans.push({s:null,start:i,count:1});i++;continue;}
+        const a=arr[i];
+        if(!a.s){spans.push({...a,start:i,count:1});i++;continue;}
         let j=i+1;
-        while(j<arr.length&&arr[j]?.id===s.id) j++;
-        spans.push({s,start:i,count:j-i}); i=j;
+        while(j<arr.length&&arr[j].s?.id===a.s.id&&arr[j].changed===a.changed) j++;
+        spans.push({...a,start:i,count:j-i});i=j;
       }
       return spans;
     };
-    const isVS=(lk,di)=>{
-      const dk=LD[lk]; if(!dk) return false;
-      const a=byId(staff,schedule[lk]?.[DAYS_ALL[di]]),b=byId(staff,schedule[dk]?.[DAYS_ALL[di]]);
-      return a&&b&&a.id===b.id;
+    const isVS=(lk,di)=>{const dk2=LD[lk];if(!dk2)return false;const a=cellOf(lk,di).s,b=cellOf(dk2,di).s;return a&&b&&a.id===b.id;};
+    const isVSkip=(rk,di)=>{const pair=Object.entries(LD).find(([l,d2])=>d2===rk);return pair?isVS(pair[0],di):false;};
+    const timeOf=(rowKey,s)=>{
+      if(!s) return "";
+      const t=rowKey.startsWith("점심")?s.lunchTime:s.dinnerTime;
+      return (t&&t!=="-")?t:"";
     };
-    const isVSkip=(rk,di)=>{
-      const pair=Object.entries(LD).find(([l,d])=>d===rk);
-      return pair?isVS(pair[0],di):false;
-    };
+    const today0=new Date();today0.setHours(0,0,0,0);
 
     return (
       <div style={{overflowX:"auto"}}>
-        <div style={{minWidth:320}}>
-          <div style={{fontSize:10,color:C.text3,marginBottom:6}}>셀 탭 → 고정 스케줄 근무자 변경</div>
-          <div style={{display:"flex",paddingLeft:38,gap:GAP,marginBottom:4}}>
-            {DAYS_ALL.map(d=>(
-              <div key={d} style={{flex:1,textAlign:"center",fontSize:11,fontWeight:700,padding:"3px 0",
-                color:d==="토"?C.blue:d==="일"?"#f05c5c":C.text2,
-                background:(d==="토"||d==="일")?"#4a9eff15":"transparent",borderRadius:5}}>{d}</div>
-            ))}
+        <div style={{minWidth:340}}>
+          {/* 주 이동 */}
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+            <button onClick={()=>{const d=new Date(weekAnchor);d.setDate(d.getDate()-7);setWeekAnchor(d);}}
+              style={{background:C.s2,border:`1px solid ${C.border}`,color:C.text,padding:"5px 10px",borderRadius:8,cursor:"pointer"}}>‹</button>
+            <div style={{textAlign:"center"}}>
+              <div style={{fontSize:13,fontWeight:700}}>
+                {weekDates[0].getMonth()+1}/{weekDates[0].getDate()} ~ {weekDates[6].getMonth()+1}/{weekDates[6].getDate()}
+              </div>
+              {!isThisWeek&&<button onClick={()=>setWeekAnchor(getMonday(new Date()))}
+                style={{fontSize:10,color:C.accent,background:"none",border:"none",cursor:"pointer",textDecoration:"underline",padding:0}}>이번주로</button>}
+            </div>
+            <button onClick={()=>{const d=new Date(weekAnchor);d.setDate(d.getDate()+7);setWeekAnchor(d);}}
+              style={{background:C.s2,border:`1px solid ${C.border}`,color:C.text,padding:"5px 10px",borderRadius:8,cursor:"pointer"}}>›</button>
           </div>
+          <div style={{fontSize:10,color:C.text3,marginBottom:6}}>셀 탭 → 이 날짜만(대타) 또는 고정 스케줄 변경 · <span style={{color:C.accent2}}>테두리 주황</span> = 변동된 날</div>
+
+          {/* 요일+날짜 헤더 */}
+          <div style={{display:"flex",paddingLeft:38,gap:GAP,marginBottom:4}}>
+            {weekDates.map((dt,i)=>{
+              const isT=dt.getTime()===today0.getTime();
+              const dow=dt.getDay();
+              return (
+                <div key={i} style={{flex:1,textAlign:"center",padding:"3px 0",borderRadius:5,
+                  background:isT?C.accent+"25":(dow===0||dow===6)?"#4a9eff15":"transparent",
+                  border:isT?`1px solid ${C.accent}`:"1px solid transparent"}}>
+                  <div style={{fontSize:11,fontWeight:700,color:dow===6?C.blue:dow===0?"#f05c5c":C.text2}}>{DOW_KR[dow]}</div>
+                  <div style={{fontSize:8,color:isT?C.accent:C.text3}}>{dt.getMonth()+1}/{dt.getDate()}</div>
+                </div>
+              );
+            })}
+          </div>
+
           {SECTIONS.map(sec=>(
             <div key={sec.label} style={{marginBottom:8}}>
               <div style={{display:"flex",alignItems:"center",gap:6,padding:"4px 8px",
                 background:`${sec.color}18`,border:`1px solid ${sec.color}40`,borderRadius:8,marginBottom:3}}>
                 <span>{sec.icon}</span>
                 <span style={{fontSize:12,fontWeight:700,color:sec.color}}>{sec.label}</span>
-                <span style={{fontSize:10,color:C.text2}}>{sec.time}</span>
               </div>
               {sec.rows.map(rowKey=>{
                 const spans=getHSpans(rowKey);
@@ -767,22 +836,29 @@ export default function App(){
                       <span style={{fontSize:9,color:C.text3,fontWeight:600}}>{ROW_LABEL[rowKey]}</span>
                     </div>
                     {spans.map((sp,si)=>{
-                      const {s,start,count}=sp;
+                      const {s,changed,start,count}=sp;
                       const vspan=s&&LD[rowKey]&&isVS(rowKey,start);
                       const vskip=s&&isVSkip(rowKey,start);
                       const col=s?s.color:"#333";
                       if(vskip) return <div key={si} style={{flex:count,height:H}}/>;
+                      const tm=timeOf(rowKey,s);
                       return (
-                        <div key={si} onClick={()=>setCellModal({posKey:rowKey,day:DAYS_ALL[start],staffId:s?.id??-1})}
+                        <div key={si} onClick={()=>setCellModal({posKey:rowKey,date:weekDates[start],staffId:s?.id??-1})}
                           style={{flex:count,height:vspan?H*2+GAP:H,
                             background:s?col+"28":"#1e2228",
                             borderLeft:s?`3px solid ${col}`:`1px dashed #333`,
+                            border:changed?`1px solid ${C.accent2}`:undefined,
+                            borderLeftWidth:s?3:1,borderLeftColor:s?(changed?C.accent2:col):"#333",borderLeftStyle:s?"solid":"dashed",
                             borderRadius:vspan?"6px 6px 0 0":6,
-                            display:"flex",alignItems:"center",justifyContent:"center",
+                            display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
                             cursor:"pointer",position:"relative",
                             ...(vspan?{zIndex:2}:{})}}>
+                          {changed&&<span style={{position:"absolute",top:1,right:3,fontSize:9,color:C.accent2,fontWeight:700}}>!</span>}
                           {s
-                            ?<span style={{fontSize:9,fontWeight:700,color:col,textAlign:"center",padding:"0 2px",lineHeight:1.3}}>{s.name}</span>
+                            ?<>
+                              <span style={{fontSize:9,fontWeight:700,color:col,textAlign:"center",padding:"0 2px",lineHeight:1.2}}>{s.name}</span>
+                              {tm&&<span style={{fontSize:6.5,color:col,opacity:.75,lineHeight:1.2,marginTop:1}}>{tm}</span>}
+                            </>
                             :<span style={{fontSize:9,color:"#444"}}>공석</span>}
                           {vspan&&<div style={{position:"absolute",left:4,right:0,top:"50%",height:1,background:`${col}30`}}/>}
                         </div>
@@ -793,6 +869,7 @@ export default function App(){
               })}
             </div>
           ))}
+
           <div style={{paddingLeft:38,marginTop:8,display:"flex",flexWrap:"wrap",gap:6}}>
             {staff.map(s=>(
               <div key={s.id} style={{display:"flex",alignItems:"center",gap:3,fontSize:10}}>
@@ -806,7 +883,7 @@ export default function App(){
     );
   };
 
-  // ── 근태 캘린더 (인라인) ──
+  // ── 근태 캘린더: 변동사항만 표기 ──
   const renderSchedCalendar=()=>{
     const y=schedCalDate.getFullYear(),m=schedCalDate.getMonth();
     const first=new Date(y,m,1).getDay(),last=new Date(y,m+1,0).getDate();
@@ -815,24 +892,40 @@ export default function App(){
     for(let d=1;d<=last;d++){
       const dateKey=`${y}-${m+1}-${d}`;
       const dow=new Date(y,m,d).getDay();
-      const hasChange=overrides[dateKey]||dayOverride[dateKey];
+      const dayName=DOW_KR[dow];
       const isToday=y===today.getFullYear()&&m===today.getMonth()&&d===today.getDate();
-      const ds=getDateSchedule(dateKey);
-      const ids=[...new Set(Object.values(ds).filter(id=>id!=null&&id!==-1))];
-      const workers=ids.map(id=>byId(staff,id)).filter(Boolean);
+
+      // 변동 계산: 오버라이드가 고정 스케줄과 다른 경우만
+      const changes=[];
+      const dov=dayOverride[dateKey];
+      if(dov){
+        Object.entries(dov).forEach(([pk,newId])=>{
+          const baseId=schedule[pk]?.[dayName];
+          if(newId!==baseId){
+            const b=byId(staff,baseId),n=byId(staff,newId);
+            changes.push({from:b?b.name:"공석",to:n?n.name:"공석",color:n?n.color:C.text3,key:pk});
+          }
+        });
+      }
+      const memo=overrides[dateKey];
+      const hasMark=changes.length>0||(memo&&(memo.changes||memo.note));
+
       cells.push(
         <div key={d} onClick={()=>setSchedModal({day:d,dateKey,y,m})}
           style={{background:isToday?"#1c1400":C.s2,
-            border:`1px solid ${isToday?C.accent:hasChange?C.accent2:C.border}`,
-            borderRadius:8,padding:"4px 3px",minHeight:58,cursor:"pointer"}}>
+            border:`1px solid ${isToday?C.accent:hasMark?C.accent2:C.border}`,
+            borderRadius:8,padding:"4px 3px",minHeight:52,cursor:"pointer"}}>
           <div style={{display:"flex",justifyContent:"space-between"}}>
             <span style={{fontSize:10,color:dow===0?"#f05c5c":dow===6?C.blue:C.text2,fontWeight:isToday?700:400}}>{d}</span>
-            {hasChange&&<span style={{fontSize:11,color:C.accent2,fontWeight:700}}>!</span>}
+            {hasMark&&<span style={{fontSize:11,color:C.accent2,fontWeight:700}}>!</span>}
           </div>
-          {workers.slice(0,3).map(w=>(
-            <div key={w.id} style={{fontSize:7,color:w.color,fontWeight:600,lineHeight:1.4}}>{w.name}</div>
-          ))}
-          {workers.length>3&&<div style={{fontSize:7,color:C.text3}}>+{workers.length-3}</div>}
+          <div style={{marginTop:2}}>
+            {changes.slice(0,2).map((c,i)=>(
+              <div key={i} style={{fontSize:6.5,color:c.color,fontWeight:600,lineHeight:1.5}}>{c.from}→{c.to}</div>
+            ))}
+            {changes.length>2&&<div style={{fontSize:6.5,color:C.text3}}>+{changes.length-2}</div>}
+            {memo?.changes&&changes.length===0&&<div style={{fontSize:6.5,color:C.accent2,lineHeight:1.4}}>{memo.changes.slice(0,8)}</div>}
+          </div>
         </div>
       );
     }
@@ -845,10 +938,10 @@ export default function App(){
           <button onClick={()=>setSchedCalDate(new Date(y,m+1,1))}
             style={{background:C.s2,border:`1px solid ${C.border}`,color:C.text,padding:"5px 10px",borderRadius:8,cursor:"pointer"}}>›</button>
         </div>
-        <div style={{fontSize:10,color:C.text3,marginBottom:6}}>날짜 탭 → 근무자 확인·변동 지정 · <span style={{color:C.accent2}}>!</span> 변동</div>
+        <div style={{fontSize:10,color:C.text3,marginBottom:6}}>고정 스케줄대로면 빈 칸 · 변동있는 날만 <span style={{color:C.accent2}}>누구→누구</span> 표기 · 날짜 탭으로 변경</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,marginBottom:2}}>
-          {["일","월","화","수","목","금","토"].map((d,i)=>(
-            <div key={d} style={{textAlign:"center",fontSize:10,fontWeight:600,padding:"3px 0",color:i===0?"#f05c5c":i===6?C.blue:C.text3}}>{d}</div>
+          {["일","월","화","수","목","금","토"].map((d2,i)=>(
+            <div key={d2} style={{textAlign:"center",fontSize:10,fontWeight:600,padding:"3px 0",color:i===0?"#f05c5c":i===6?C.blue:C.text3}}>{d2}</div>
           ))}
         </div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2}}>{cells}</div>
@@ -992,7 +1085,7 @@ export default function App(){
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
               <div>
                 <div style={{fontSize:18,fontWeight:700}}>주간 근무표</div>
-                <div style={{fontSize:11,color:C.text2,marginTop:2}}>주방①②③은 편의상 슬롯 번호 · 역할은 유동적</div>
+                <div style={{fontSize:11,color:C.text2,marginTop:2}}>날짜 기반 · 근태 변동 자동 반영 · 슬롯 번호는 편의상</div>
               </div>
               <button onClick={autoArrange}
                 style={{background:C.s2,border:`1px solid ${C.accent}`,color:C.accent,borderRadius:10,padding:"8px 12px",fontSize:11,fontWeight:600,cursor:"pointer",flexShrink:0}}>
@@ -1054,7 +1147,10 @@ export default function App(){
       </div>
 
       <SalesModal modal={salesModal} calDate={calDate} sales={sales} onSave={saveSalesData} onClose={()=>setSalesModal(null)}/>
-      <CellEditModal modal={cellModal} staff={staff} onSelect={(id)=>updateCell(cellModal.posKey,cellModal.day,id)} onClose={()=>setCellModal(null)}/>
+      <CellEditModal modal={cellModal} staff={staff}
+        onApplyDate={(id)=>{updateDayCell(dateKeyOf(cellModal.date),cellModal.posKey,id);setCellModal(null);}}
+        onApplyFixed={(id)=>{updateCell(cellModal.posKey,DOW_KR[cellModal.date.getDay()],id);}}
+        onClose={()=>setCellModal(null)}/>
       <SchedDayModal modal={schedModal} staff={staff} getDateSchedule={getDateSchedule} dayOverride={dayOverride}
         onCellChange={updateDayCell} overrides={overrides} onSaveMemo={saveMemo} onClose={()=>setSchedModal(null)}/>
 
