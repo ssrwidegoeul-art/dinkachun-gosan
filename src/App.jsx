@@ -35,7 +35,7 @@ const INIT_SCHEDULE = {
 };
 
 const INIT_STAFF = [
-  {id:1,name:"승룡",role:"사장",position:"kitchen",wage:0,type:"사장",insurance:"-",days:["월","화","수","목","금"],lunchTime:"10:00–15:00",dinnerTime:"16:30–21:30",phone:"",contractFile:null,memo:"점심 월~금 / 저녁 월화수",color:"#3dba7a",weeklyHours:0},
+  {id:1,name:"승룡",role:"사장",position:"kitchen",wage:0,type:"사장",insurance:"-",days:["월","화","수","목","금"],lunchTime:"10:00–15:00",dinnerTime:"16:30–21:30",phone:"",contractFile:null,memo:"점심 월~금 / 저녁 월화수 (목금 오전만)",color:"#3dba7a",weeklyHours:0,dayTimes:{"목":{dinner:"-"},"금":{dinner:"-"}}},
   {id:2,name:"나래",role:"사모님",position:"kitchen",wage:0,type:"사장",insurance:"-",days:["월","화","수"],lunchTime:"10:00–15:00",dinnerTime:"-",phone:"",contractFile:null,memo:"점심만 월화수",color:"#4fc3f7",weeklyHours:0},
   {id:100,name:"이현민",role:"주방실장",position:"manager",wage:3000000,type:"월급",insurance:"4대보험",days:["목","금","토","일"],lunchTime:"10:00–21:30",dinnerTime:"10:00–21:30",phone:"",contractFile:null,memo:"월 300만원 확정 / 월차 없음(계약서 명시)",color:"#b39ddb",weeklyHours:42},
   {id:3,name:"자윤",role:"홀",position:"hall",wage:11000,type:"시급",insurance:"단기(3.3%)",days:["월","화","수","목","금"],lunchTime:"11:00–14:00",dinnerTime:"-",phone:"",contractFile:null,memo:"",color:"#80cbc4",weeklyHours:15},
@@ -142,6 +142,13 @@ function calcPay(s){
 const byId=(list,id)=>(id==null||id===-1)?null:(list.find(s=>s.id===id)||null);
 const getMonday=(d)=>{const x=new Date(d);const dow=(x.getDay()+6)%7;x.setDate(x.getDate()-dow);x.setHours(0,0,0,0);return x;};
 const dateKeyOf=(d)=>`${d.getFullYear()}-${d.getMonth()+1}-${d.getDate()}`;
+// 요일별 개별 시간 우선, 없으면 기본 시간
+const effTime=(s,dayName,section)=>{
+  const dt=s.dayTimes?.[dayName];
+  if(section==="점심") return (dt&&dt.lunch!==undefined)?dt.lunch:s.lunchTime;
+  return (dt&&dt.dinner!==undefined)?dt.dinner:s.dinnerTime;
+};
+
 // "11:00–14:00" 같은 문자열 → 시간(h). 어떤 대시/물결이든 허용
 const parseHours=(t)=>{
   const m=/(\d{1,2}):(\d{2})\s*[^\d]{1,3}\s*(\d{1,2}):(\d{2})/.exec(t||"");
@@ -155,6 +162,7 @@ const parseHours=(t)=>{
 function StaffCard({s,updateStaff,removeStaff}){
   const p=calcPay(s);
   const [open,setOpen]=useState(false);
+  const [showDT,setShowDT]=useState(false);
   return (
     <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,marginBottom:10,overflow:"hidden"}}>
       <div onClick={()=>setOpen(o=>!o)} style={{padding:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
@@ -231,6 +239,57 @@ function StaffCard({s,updateStaff,removeStaff}){
                   placeholder="예: 16:30–21:30"
                   style={{width:"100%",background:C.s2,border:`1px solid ${C.border}`,borderRadius:6,padding:"7px 8px",color:C.text,fontSize:11,outline:"none"}}/>
               </div>
+            </div>
+            <div style={{marginBottom:8}}>
+              <button onClick={()=>setShowDT(v=>!v)}
+                style={{width:"100%",padding:"8px 10px",borderRadius:8,fontSize:11,cursor:"pointer",textAlign:"left",
+                  border:`1px dashed ${showDT?C.accent:C.border}`,background:showDT?C.accent+"11":"transparent",
+                  color:showDT?C.accent:C.text2}}>
+                📆 요일별 개별 시간 설정 {showDT?"▲":"▼"}
+                {s.dayTimes&&Object.keys(s.dayTimes).length>0&&
+                  <span style={{fontSize:9,marginLeft:6,color:C.accent2}}>
+                    ({Object.keys(s.dayTimes).join(",")} 개별설정됨)
+                  </span>}
+              </button>
+              {showDT&&(
+                <div style={{background:C.s2,borderRadius:8,padding:10,marginTop:6,border:`1px solid ${C.border}`}}>
+                  <div style={{fontSize:9,color:C.text3,marginBottom:8,lineHeight:1.6}}>
+                    특정 요일만 시간이 다를 때 입력 · 비우면 위 기본 시간 적용 · 그 시간대 근무 없으면 <b style={{color:C.text2}}>-</b> 입력
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"28px 1fr 1fr",gap:4,marginBottom:4}}>
+                    <div/>
+                    <div style={{fontSize:9,color:C.text3,textAlign:"center"}}>점심</div>
+                    <div style={{fontSize:9,color:C.text3,textAlign:"center"}}>저녁</div>
+                  </div>
+                  {s.days.map(d=>(
+                    <div key={d} style={{display:"grid",gridTemplateColumns:"28px 1fr 1fr",gap:4,marginBottom:4,alignItems:"center"}}>
+                      <span style={{fontSize:11,fontWeight:700,color:s.color,textAlign:"center"}}>{d}</span>
+                      <input defaultValue={s.dayTimes?.[d]?.lunch??""} placeholder={s.lunchTime}
+                        onBlur={e=>{
+                          const v=e.target.value.trim();
+                          const dt={...(s.dayTimes||{})};
+                          const cur={...(dt[d]||{})};
+                          if(v) cur.lunch=v; else delete cur.lunch;
+                          if(Object.keys(cur).length) dt[d]=cur; else delete dt[d];
+                          updateStaff(s.id,{dayTimes:dt});
+                        }}
+                        style={{background:C.s3,border:`1px solid ${s.dayTimes?.[d]?.lunch!==undefined?C.accent2:C.border}`,
+                          borderRadius:6,padding:"6px 6px",color:C.text,fontSize:10,outline:"none",width:"100%"}}/>
+                      <input defaultValue={s.dayTimes?.[d]?.dinner??""} placeholder={s.dinnerTime}
+                        onBlur={e=>{
+                          const v=e.target.value.trim();
+                          const dt={...(s.dayTimes||{})};
+                          const cur={...(dt[d]||{})};
+                          if(v) cur.dinner=v; else delete cur.dinner;
+                          if(Object.keys(cur).length) dt[d]=cur; else delete dt[d];
+                          updateStaff(s.id,{dayTimes:dt});
+                        }}
+                        style={{background:C.s3,border:`1px solid ${s.dayTimes?.[d]?.dinner!==undefined?C.accent2:C.border}`,
+                          borderRadius:6,padding:"6px 6px",color:C.text,fontSize:10,outline:"none",width:"100%"}}/>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
             {s.type!=="사장"&&(
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
@@ -773,25 +832,26 @@ export default function App(){
     const isThisWeek=getMonday(new Date()).getTime()===weekAnchor.getTime();
 
     const cellOf=(rowKey,i)=>{const r=resolveCell(rowKey,weekDates[i]);return {s:byId(staff,r.id),changed:r.changed};};
+    const timeAt=(rowKey,s,i)=>{
+      if(!s) return "";
+      const dayName=DOW_KR[weekDates[i].getDay()];
+      const t=effTime(s,dayName,rowKey.startsWith("점심")?"점심":"저녁");
+      return (t&&t!=="-")?t:"";
+    };
     const getHSpans=(rowKey)=>{
-      const arr=weekDates.map((_,i)=>cellOf(rowKey,i));
+      const arr=weekDates.map((_,i)=>{const c=cellOf(rowKey,i);return {...c,tm:timeAt(rowKey,c.s,i)};});
       const spans=[];let i=0;
       while(i<arr.length){
         const a=arr[i];
         if(!a.s){spans.push({...a,start:i,count:1});i++;continue;}
         let j=i+1;
-        while(j<arr.length&&arr[j].s?.id===a.s.id&&arr[j].changed===a.changed) j++;
+        while(j<arr.length&&arr[j].s?.id===a.s.id&&arr[j].changed===a.changed&&arr[j].tm===a.tm) j++;
         spans.push({...a,start:i,count:j-i});i=j;
       }
       return spans;
     };
     const isVS=(lk,di)=>{const dk2=LD[lk];if(!dk2)return false;const a=cellOf(lk,di).s,b=cellOf(dk2,di).s;return a&&b&&a.id===b.id;};
     const isVSkip=(rk,di)=>{const pair=Object.entries(LD).find(([l,d2])=>d2===rk);return pair?isVS(pair[0],di):false;};
-    const timeOf=(rowKey,s)=>{
-      if(!s) return "";
-      const t=rowKey.startsWith("점심")?s.lunchTime:s.dinnerTime;
-      return (t&&t!=="-")?t:"";
-    };
     const today0=new Date();today0.setHours(0,0,0,0);
 
     return (
@@ -844,12 +904,12 @@ export default function App(){
                       <span style={{fontSize:9,color:C.text3,fontWeight:600}}>{ROW_LABEL[rowKey]}</span>
                     </div>
                     {spans.map((sp,si)=>{
-                      const {s,changed,start,count}=sp;
+                      const {s,changed,start,count,tm:spTm}=sp;
                       const vspan=s&&LD[rowKey]&&isVS(rowKey,start);
                       const vskip=s&&isVSkip(rowKey,start);
                       const col=s?s.color:"#333";
                       if(vskip) return <div key={si} style={{flex:count,height:H}}/>;
-                      const tm=timeOf(rowKey,s);
+                      const tm=spTm;
                       return (
                         <div key={si} onClick={()=>setCellModal({posKey:rowKey,date:weekDates[start],staffId:s?.id??-1})}
                           style={{flex:count,height:vspan?H*2+GAP:H,
@@ -979,7 +1039,7 @@ export default function App(){
           actualIds.add(actId);
           const st=byId(staff,actId);
           if(st){
-            const t=pos.key.startsWith("점심")?st.lunchTime:st.dinnerTime;
+            const t=effTime(st,dayName,pos.key.startsWith("점심")?"점심":"저녁");
             if(t&&t!=="-"){
               if(!actualSlots[actId]) actualSlots[actId]=new Set();
               actualSlots[actId].add(t);
