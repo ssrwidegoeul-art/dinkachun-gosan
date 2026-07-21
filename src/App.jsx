@@ -21,17 +21,12 @@ const MODULES = [
   {key:"저녁-홀",section:"저녁",label:"홀"},
 ];
 
-// ── 모듈 키 → 이 슬롯에 배치되어야 할 포지션(hall/kitchen) ──
-// staff.position 필드와 대조해서 배치 오류(예: 주방 직원이 홀 슬롯에 잘못 들어감)를 자동 감지하는 데 사용
-const expectedPosition = (moduleKey) => moduleKey.endsWith("주방") ? "kitchen" : "hall";
-
 const INIT_SCHEDULE = {
   // 요일별 근무 인원 목록만 입력. 배치(행)는 자동 계산됨
   "점심-주방": {월:[1,2],화:[1,2],수:[1,2],목:[1,100],금:[1,100],토:[9,100,10],일:[9,100,10]},
   "점심-홀":   {월:[3],화:[3],수:[3],목:[3],금:[3],토:[11],일:[11]},
   "저녁-주방": {월:[1,5,7],화:[1,5,7],수:[1,4,7],목:[100,4,7],금:[100,4,7],토:[100,9],일:[100,9]},
-  // ↓ 수정: 토·일에 잘못 들어가 있던 10(병무, 주방)을 8(인호, 홀)로 정정
-  "저녁-홀":   {월:[8],화:[12],수:[12],목:[13],금:[13],토:[8],일:[8]},
+  "저녁-홀":   {월:[8],화:[12],수:[12],목:[13],금:[13],토:[10],일:[10]},
 };
 
 const INIT_STAFF = [
@@ -123,7 +118,8 @@ const C={bg:"#101418",surface:"#181c20",s2:"#1e2228",s3:"#252b32",border:"#2e354
   accent:"#ff6b35",accent2:"#ffb347",text:"#eef0f2",text2:"#8a9bb0",text3:"#4a5568",
   green:"#3dba7a",blue:"#4a9eff",red:"#f05c5c"};
 
-function calcPay(s){
+function calcPay(s, whArg){
+  const wh = whArg!=null?whArg:(s.weeklyHours||0);
   if(!s||s.type==="사장") return {gross:0,net:0,deduct:0,empAdd:0,weeklyPay:0};
   if(s.type==="월급"){
     const g=s.wage,pen=Math.round(g*.045),hea=Math.round(g*.03545),
@@ -131,9 +127,9 @@ function calcPay(s){
     const deduct=pen+hea+car+emp+inc+loc;
     return {gross:g,net:g-deduct,deduct,empAdd:Math.round(g*.09),weeklyPay:0};
   }
-  const hrs=s.weeklyHours*4.345;
+  const hrs=wh*4.345;
   const g=Math.round(hrs*s.wage);
-  const weekly=s.weeklyHours>=15?Math.round((s.weeklyHours/40)*8*s.wage*4.345):0;
+  const weekly=wh>=15?Math.round((wh/40)*8*s.wage*4.345):0;
   const gross=g+weekly;
   const deduct=s.insurance==="4대보험"?Math.round(gross*.094):Math.round(gross*.033);
   return {gross,net:gross-deduct,deduct,empAdd:s.insurance==="4대보험"?Math.round(gross*.09):0,weeklyPay:weekly};
@@ -159,8 +155,41 @@ const parseHours=(t)=>{
 
 // ==================== 외부 컴포넌트 (포커스 버그 수정) ====================
 
-function StaffCard({s,updateStaff,removeStaff}){
-  const p=calcPay(s);
+const TIME_OPTS=(()=>{const a=[];for(let h=6;h<=23;h++){a.push(String(h).padStart(2,"0")+":00");a.push(String(h).padStart(2,"0")+":30");}a.push("24:00");return a;})();
+const splitRange=(v)=>{const m=/(\d{1,2}:\d{2})\s*[^\d]{1,3}\s*(\d{1,2}:\d{2})/.exec(v||"");return m?[m[1].padStart(5,"0"),m[2].padStart(5,"0")]:[null,null];};
+
+function TimeRangePicker({value,onChange,allowDefault,accent}){
+  const [st,en]=splitRange(value);
+  const isDefault=allowDefault&&(value===undefined||value===null||value==="");
+  const selStyle={background:"#1e2228",border:`1px solid ${C.border}`,borderRadius:6,
+    padding:"6px 3px",color:C.text,fontSize:11,outline:"none",flex:1,minWidth:0};
+  return (
+    <div style={{display:"flex",gap:3,alignItems:"center"}}>
+      <select value={isDefault?"__d":(st||"__n")} style={selStyle}
+        onChange={e=>{
+          const v=e.target.value;
+          if(v==="__d"){onChange(undefined);return;}
+          if(v==="__n"){onChange("-");return;}
+          const idx=TIME_OPTS.indexOf(v);
+          const end=(en&&en>v)?en:TIME_OPTS[Math.min(idx+8,TIME_OPTS.length-1)];
+          onChange(v+"–"+end);
+        }}>
+        {allowDefault?<option value="__d">기본</option>:<option value="__n">없음</option>}
+        {TIME_OPTS.map(t=><option key={t} value={t}>{t}</option>)}
+      </select>
+      {(st&&!isDefault)&&<>
+        <span style={{fontSize:10,color:C.text3,flexShrink:0}}>~</span>
+        <select value={en||""} style={selStyle}
+          onChange={e=>onChange(st+"–"+e.target.value)}>
+          {TIME_OPTS.filter(t=>t>st).map(t=><option key={t} value={t}>{t}</option>)}
+        </select>
+      </>}
+    </div>
+  );
+}
+
+function StaffCard({s,updateStaff,removeStaff,days,weeklyH,shiftOn,toggleShift}){
+  const p=calcPay(s,weeklyH);
   const [open,setOpen]=useState(false);
   const [showDT,setShowDT]=useState(false);
   return (
@@ -178,7 +207,7 @@ function StaffCard({s,updateStaff,removeStaff}){
             </div>
             <div style={{fontSize:11,color:C.text2}}>{s.role} · {s.insurance}</div>
             <div style={{display:"flex",flexWrap:"wrap",gap:2,marginTop:2}}>
-              {s.days.map(d=><span key={d} style={{fontSize:9,padding:"1px 5px",borderRadius:4,background:`${s.color}22`,color:s.color}}>{d}</span>)}
+              {days.map(d=><span key={d} style={{fontSize:9,padding:"1px 5px",borderRadius:4,background:`${s.color}22`,color:s.color}}>{d}</span>)}
             </div>
           </div>
         </div>
@@ -189,25 +218,12 @@ function StaffCard({s,updateStaff,removeStaff}){
       </div>
       {open&&(
         <div style={{padding:"0 14px 14px",borderTop:`1px solid ${C.border}`}}>
-          {/* ── 포지션(홀/주방) 태그: 근무표 배치 검증에 그대로 쓰이는 값 ── */}
-          <div style={{background:C.s3,borderRadius:10,padding:12,marginTop:12,marginBottom:12}}>
-            <div style={{fontSize:11,fontWeight:600,color:C.text2,marginBottom:8}}>🏷️ 포지션 <span style={{fontSize:9,color:C.text3}}>(근무표 배치 오류 자동 감지에 사용됨)</span></div>
-            <div style={{display:"flex",gap:6}}>
-              {[["hall","🙋 홀"],["kitchen","🍳 주방"],["manager","👑 매니저"]].map(([val,label])=>(
-                <button key={val} onClick={()=>updateStaff(s.id,{position:val})}
-                  style={{flex:1,padding:"8px 6px",borderRadius:8,fontSize:12,cursor:"pointer",fontWeight:600,
-                    border:`1px solid ${s.position===val?s.color:C.border}`,
-                    background:s.position===val?s.color+"22":"transparent",
-                    color:s.position===val?s.color:C.text3}}>{label}</button>
-              ))}
-            </div>
-          </div>
           {s.type!=="사장"&&(
-            <div style={{background:C.s3,borderRadius:10,padding:12,marginBottom:12}}>
+            <div style={{background:C.s3,borderRadius:10,padding:12,marginTop:12,marginBottom:12}}>
               <div style={{fontSize:11,fontWeight:600,color:C.text2,marginBottom:8}}>💰 월 급여</div>
               {[
                 ["근무",s.type==="월급"?`${(s.wage/10000).toFixed(0)}만/월`:`${s.wage.toLocaleString()}원/시`],
-                ["주 시간",`${s.weeklyHours}h`],
+                ["주 시간",`${weeklyH}h (자동)`],
                 ...(p.weeklyPay>0?[["주휴수당",`+${(p.weeklyPay/10000).toFixed(1)}만`]]:[]),
                 ["지급 총액",`${(p.gross/10000).toFixed(1)}만원`],
                 [s.insurance==="4대보험"?"공제(9.4%)":"공제(3.3%)",`-${(p.deduct/10000).toFixed(1)}만원`],
@@ -223,87 +239,98 @@ function StaffCard({s,updateStaff,removeStaff}){
               ))}
             </div>
           )}
-          <div style={{background:C.s3,borderRadius:10,padding:12,marginBottom:12}}>
-            <div style={{fontSize:11,fontWeight:600,color:C.text2,marginBottom:8}}>📅 근무 요일 <span style={{fontSize:9,color:C.text3}}>(변경 → 근무표 자동 반영)</span></div>
-            <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:8}}>
+          <div style={{background:C.s3,borderRadius:10,padding:12,marginTop:12,marginBottom:12}}>
+            <div style={{fontSize:11,fontWeight:600,color:C.text2,marginBottom:8}}>
+              📅 근무 블럭 <span style={{fontSize:9,color:C.text3}}>(탭 → 근무표에 바로 반영)</span>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"32px repeat(7,1fr)",gap:3,alignItems:"center",marginBottom:12}}>
+              <div/>
+              {DAYS_ALL.map(d=>(
+                <div key={d} style={{textAlign:"center",fontSize:10,fontWeight:700,
+                  color:d==="토"?C.blue:d==="일"?"#f05c5c":C.text3}}>{d}</div>
+              ))}
+              <div style={{fontSize:9,color:C.text3,textAlign:"right",paddingRight:2}}>점심</div>
               {DAYS_ALL.map(d=>{
-                const active=s.days.includes(d);
-                return (
-                  <button key={d} onClick={()=>{
-                    const nd=active?s.days.filter(x=>x!==d):[...s.days,d].sort((a,b)=>DAYS_ALL.indexOf(a)-DAYS_ALL.indexOf(b));
-                    updateStaff(s.id,{days:nd});
-                  }} style={{padding:"6px 10px",borderRadius:8,fontSize:12,cursor:"pointer",
-                    border:`1px solid ${active?s.color:C.border}`,
-                    background:active?s.color+"22":"transparent",
-                    color:active?s.color:C.text3,fontWeight:active?700:400}}>{d}</button>
-                );
+                const on=shiftOn(s.id,d,"L");
+                return <button key={"L"+d} onClick={()=>toggleShift(s.id,d,"L")}
+                  style={{height:28,borderRadius:6,cursor:"pointer",padding:0,
+                    border:`1.5px solid ${on?s.color:C.border}`,
+                    background:on?s.color+"45":"transparent",
+                    display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  {on&&<span style={{fontSize:10,color:s.color,fontWeight:800}}>●</span>}
+                </button>;
+              })}
+              <div style={{fontSize:9,color:C.text3,textAlign:"right",paddingRight:2}}>저녁</div>
+              {DAYS_ALL.map(d=>{
+                const on=shiftOn(s.id,d,"D");
+                return <button key={"D"+d} onClick={()=>toggleShift(s.id,d,"D")}
+                  style={{height:28,borderRadius:6,cursor:"pointer",padding:0,
+                    border:`1.5px solid ${on?s.color:C.border}`,
+                    background:on?s.color+"45":"transparent",
+                    display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  {on&&<span style={{fontSize:10,color:s.color,fontWeight:800}}>●</span>}
+                </button>;
               })}
             </div>
+
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
               <div>
-                <div style={{fontSize:10,color:C.text2,marginBottom:3}}>점심 근무시간</div>
-                <input defaultValue={s.lunchTime} onBlur={e=>updateStaff(s.id,{lunchTime:e.target.value.trim()||"-"})}
-                  placeholder="예: 11:00–14:00 (없으면 -)"
-                  style={{width:"100%",background:C.s2,border:`1px solid ${C.border}`,borderRadius:6,padding:"7px 8px",color:C.text,fontSize:11,outline:"none"}}/>
+                <div style={{fontSize:10,color:C.text2,marginBottom:3}}>점심 시간</div>
+                <TimeRangePicker value={s.lunchTime} accent={s.color}
+                  onChange={v=>updateStaff(s.id,{lunchTime:v||"-"})}/>
               </div>
               <div>
-                <div style={{fontSize:10,color:C.text2,marginBottom:3}}>저녁 근무시간</div>
-                <input defaultValue={s.dinnerTime} onBlur={e=>updateStaff(s.id,{dinnerTime:e.target.value.trim()||"-"})}
-                  placeholder="예: 16:30–21:30"
-                  style={{width:"100%",background:C.s2,border:`1px solid ${C.border}`,borderRadius:6,padding:"7px 8px",color:C.text,fontSize:11,outline:"none"}}/>
+                <div style={{fontSize:10,color:C.text2,marginBottom:3}}>저녁 시간</div>
+                <TimeRangePicker value={s.dinnerTime} accent={s.color}
+                  onChange={v=>updateStaff(s.id,{dinnerTime:v||"-"})}/>
               </div>
             </div>
+
             <div style={{marginBottom:8}}>
               <button onClick={()=>setShowDT(v=>!v)}
                 style={{width:"100%",padding:"8px 10px",borderRadius:8,fontSize:11,cursor:"pointer",textAlign:"left",
                   border:`1px dashed ${showDT?C.accent:C.border}`,background:showDT?C.accent+"11":"transparent",
                   color:showDT?C.accent:C.text2}}>
-                📆 요일별 개별 시간 설정 {showDT?"▲":"▼"}
+                📆 요일별 개별 시간 {showDT?"▲":"▼"}
                 {s.dayTimes&&Object.keys(s.dayTimes).length>0&&
-                  <span style={{fontSize:9,marginLeft:6,color:C.accent2}}>
-                    ({Object.keys(s.dayTimes).join(",")} 개별설정됨)
-                  </span>}
+                  <span style={{fontSize:9,marginLeft:6,color:C.accent2}}>({Object.keys(s.dayTimes).join(",")} 개별설정)</span>}
               </button>
               {showDT&&(
                 <div style={{background:C.s2,borderRadius:8,padding:10,marginTop:6,border:`1px solid ${C.border}`}}>
-                  <div style={{fontSize:9,color:C.text3,marginBottom:8,lineHeight:1.6}}>
-                    특정 요일만 시간이 다를 때 입력 · 비우면 위 기본 시간 적용 · 그 시간대 근무 없으면 <b style={{color:C.text2}}>-</b> 입력
-                  </div>
-                  <div style={{display:"grid",gridTemplateColumns:"28px 1fr 1fr",gap:4,marginBottom:4}}>
+                  <div style={{fontSize:9,color:C.text3,marginBottom:8}}>특정 요일만 시간이 다를 때 · "기본" = 위 시간 적용</div>
+                  <div style={{display:"grid",gridTemplateColumns:"24px 1fr 1fr",gap:4,marginBottom:4}}>
                     <div/>
                     <div style={{fontSize:9,color:C.text3,textAlign:"center"}}>점심</div>
                     <div style={{fontSize:9,color:C.text3,textAlign:"center"}}>저녁</div>
                   </div>
-                  {s.days.map(d=>(
-                    <div key={d} style={{display:"grid",gridTemplateColumns:"28px 1fr 1fr",gap:4,marginBottom:4,alignItems:"center"}}>
+                  {days.map(d=>(
+                    <div key={d} style={{display:"grid",gridTemplateColumns:"24px 1fr 1fr",gap:4,marginBottom:4,alignItems:"center"}}>
                       <span style={{fontSize:11,fontWeight:700,color:s.color,textAlign:"center"}}>{d}</span>
-                      <input defaultValue={s.dayTimes?.[d]?.lunch??""} placeholder={s.lunchTime}
-                        onBlur={e=>{
-                          const v=e.target.value.trim();
+                      <TimeRangePicker allowDefault accent={s.color}
+                        value={s.dayTimes?.[d]?.lunch}
+                        onChange={v=>{
                           const dt={...(s.dayTimes||{})};
                           const cur={...(dt[d]||{})};
-                          if(v) cur.lunch=v; else delete cur.lunch;
+                          if(v!==undefined) cur.lunch=v; else delete cur.lunch;
                           if(Object.keys(cur).length) dt[d]=cur; else delete dt[d];
                           updateStaff(s.id,{dayTimes:dt});
-                        }}
-                        style={{background:C.s3,border:`1px solid ${s.dayTimes?.[d]?.lunch!==undefined?C.accent2:C.border}`,
-                          borderRadius:6,padding:"6px 6px",color:C.text,fontSize:10,outline:"none",width:"100%"}}/>
-                      <input defaultValue={s.dayTimes?.[d]?.dinner??""} placeholder={s.dinnerTime}
-                        onBlur={e=>{
-                          const v=e.target.value.trim();
+                        }}/>
+                      <TimeRangePicker allowDefault accent={s.color}
+                        value={s.dayTimes?.[d]?.dinner}
+                        onChange={v=>{
                           const dt={...(s.dayTimes||{})};
                           const cur={...(dt[d]||{})};
-                          if(v) cur.dinner=v; else delete cur.dinner;
+                          if(v!==undefined) cur.dinner=v; else delete cur.dinner;
                           if(Object.keys(cur).length) dt[d]=cur; else delete dt[d];
                           updateStaff(s.id,{dayTimes:dt});
-                        }}
-                        style={{background:C.s3,border:`1px solid ${s.dayTimes?.[d]?.dinner!==undefined?C.accent2:C.border}`,
-                          borderRadius:6,padding:"6px 6px",color:C.text,fontSize:10,outline:"none",width:"100%"}}/>
+                        }}/>
                     </div>
                   ))}
+                  {days.length===0&&<div style={{fontSize:10,color:C.text3,textAlign:"center",padding:6}}>먼저 근무 블럭을 체크하세요</div>}
                 </div>
               )}
             </div>
+
             {s.type!=="사장"&&(
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
                 <div>
@@ -312,9 +339,10 @@ function StaffCard({s,updateStaff,removeStaff}){
                     style={{width:"100%",background:C.s2,border:`1px solid ${C.border}`,borderRadius:6,padding:"7px 8px",color:C.text,fontSize:12,outline:"none"}}/>
                 </div>
                 <div>
-                  <div style={{fontSize:10,color:C.text2,marginBottom:3}}>주 근무시간</div>
-                  <input type="number" defaultValue={s.weeklyHours} onBlur={e=>updateStaff(s.id,{weeklyHours:parseFloat(e.target.value)||0})}
-                    style={{width:"100%",background:C.s2,border:`1px solid ${C.border}`,borderRadius:6,padding:"7px 8px",color:C.text,fontSize:12,outline:"none"}}/>
+                  <div style={{fontSize:10,color:C.text2,marginBottom:3}}>주 근무시간 (자동)</div>
+                  <div style={{background:C.s2,border:`1px solid ${C.border}`,borderRadius:6,padding:"7px 8px",textAlign:"center"}}>
+                    <span style={{fontSize:13,fontWeight:700,color:s.color}}>{weeklyH}h</span>
+                  </div>
                 </div>
               </div>
             )}
@@ -391,7 +419,6 @@ function CellEditModal({modal,staff,resolveIds,baseIds,onApplyDate,onApplyFixed,
   const label=MODULES.find(m=>m.key===moduleKey)?.label||"";
   const section=moduleKey.startsWith("점심")?"점심":"저녁";
   const dateLabel=`${date.getMonth()+1}/${date.getDate()} (${dayName})`;
-  const expected=expectedPosition(moduleKey);
 
   const apply=(ids)=>{
     if(scope==="date") onApplyDate(moduleKey,date,ids);
@@ -428,34 +455,27 @@ function CellEditModal({modal,staff,resolveIds,baseIds,onApplyDate,onApplyFixed,
         {cur.map(id=>{
           const s=staff.find(x=>x.id===id);
           if(!s) return null;
-          const mismatch=s.position!==expected;
           return (
             <button key={id} onClick={()=>apply(cur.filter(x=>x!==id))}
               style={{display:"flex",alignItems:"center",gap:5,padding:"7px 11px",borderRadius:16,
-                border:`1.5px solid ${mismatch?C.red:s.color}`,background:s.color+"22",color:mismatch?C.red:s.color,
+                border:`1.5px solid ${s.color}`,background:s.color+"22",color:s.color,
                 fontSize:12,fontWeight:700,cursor:"pointer"}}>
-              {mismatch&&"⚠ "}{s.name} <span style={{fontSize:10,opacity:.7}}>✕</span>
+              {s.name} <span style={{fontSize:10,opacity:.7}}>✕</span>
             </button>
           );
         })}
       </div>
 
       {/* 추가 */}
-      <div style={{fontSize:11,color:C.text2,marginBottom:6}}>
-        인원 추가 (탭) <span style={{fontSize:9,color:C.text3}}>· 흐린 이름은 이 슬롯 포지션({expected==="hall"?"홀":"주방"})과 다른 인원</span>
-      </div>
+      <div style={{fontSize:11,color:C.text2,marginBottom:6}}>인원 추가 (탭)</div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6}}>
-        {staff.filter(s=>!cur.includes(s.id)).map(s=>{
-          const mismatch=s.position!==expected;
-          return (
-            <button key={s.id} onClick={()=>apply([...cur,s.id])}
-              style={{padding:"9px 4px",borderRadius:8,
-                border:`1px ${mismatch?"dashed":"solid"} ${mismatch?C.red:C.border}`,
-                background:C.s3,color:mismatch?C.red:s.color,cursor:"pointer",fontSize:12,opacity:mismatch?0.6:1}}>
-              {s.name}{mismatch&&" ⚠"}
-            </button>
-          );
-        })}
+        {staff.filter(s=>!cur.includes(s.id)).map(s=>(
+          <button key={s.id} onClick={()=>apply([...cur,s.id])}
+            style={{padding:"9px 4px",borderRadius:8,border:`1px solid ${C.border}`,
+              background:C.s3,color:s.color,cursor:"pointer",fontSize:12}}>
+            {s.name}
+          </button>
+        ))}
       </div>
 
       {hasOverride&&scope==="date"&&(
@@ -506,7 +526,6 @@ function SchedDayModal({modal,staff,schedule,dayOverride,onSetDate,onClearModule
         const base=schedule[mo.key]?.[dayName]||[];
         const isChanged=dayOverride[dateKey]?.[mo.key]!==undefined
           &&JSON.stringify([...ids].sort())!==JSON.stringify([...base].sort());
-        const expected=expectedPosition(mo.key);
         return (
           <div key={mo.key} style={{marginBottom:8,background:C.s3,borderRadius:10,padding:"8px 10px",
             border:`1px solid ${isChanged?C.accent2:C.border}`}}>
@@ -523,13 +542,12 @@ function SchedDayModal({modal,staff,schedule,dayOverride,onSetDate,onClearModule
               {ids.map(id=>{
                 const s=staff.find(x=>x.id===id);
                 if(!s) return null;
-                const mismatch=s.position!==expected;
                 return (
                   <button key={id} onClick={()=>onSetDate(dateKey,mo.key,ids.filter(x=>x!==id))}
                     style={{display:"flex",alignItems:"center",gap:4,padding:"5px 9px",borderRadius:14,
-                      border:`1.5px solid ${mismatch?C.red:s.color}`,background:s.color+"22",color:mismatch?C.red:s.color,
+                      border:`1.5px solid ${s.color}`,background:s.color+"22",color:s.color,
                       fontSize:11,fontWeight:700,cursor:"pointer"}}>
-                    {mismatch&&"⚠ "}{s.name} <span style={{fontSize:9,opacity:.7}}>✕</span>
+                    {s.name} <span style={{fontSize:9,opacity:.7}}>✕</span>
                   </button>
                 );
               })}
@@ -539,17 +557,13 @@ function SchedDayModal({modal,staff,schedule,dayOverride,onSetDate,onClearModule
             </div>
             {pick===mo.key&&(
               <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:4,marginTop:8}}>
-                {staff.filter(s=>!ids.includes(s.id)).map(s=>{
-                  const mismatch=s.position!==expected;
-                  return (
-                    <button key={s.id} onClick={()=>{onSetDate(dateKey,mo.key,[...ids,s.id]);setPick(null);}}
-                      style={{padding:"7px 4px",borderRadius:6,
-                        border:`1px ${mismatch?"dashed":"solid"} ${mismatch?C.red:C.border}`,
-                        background:C.s2,color:mismatch?C.red:s.color,cursor:"pointer",fontSize:11,opacity:mismatch?0.6:1}}>
-                      {s.name}{mismatch&&" ⚠"}
-                    </button>
-                  );
-                })}
+                {staff.filter(s=>!ids.includes(s.id)).map(s=>(
+                  <button key={s.id} onClick={()=>{onSetDate(dateKey,mo.key,[...ids,s.id]);setPick(null);}}
+                    style={{padding:"7px 4px",borderRadius:6,border:`1px solid ${C.border}`,
+                      background:C.s2,color:s.color,cursor:"pointer",fontSize:11}}>
+                    {s.name}
+                  </button>
+                ))}
               </div>
             )}
           </div>
@@ -831,7 +845,50 @@ export default function App(){
     });
   };
 
-  const laborCost=staff.filter(s=>s.type!=="사장").reduce((sum,s)=>sum+calcPay(s).gross/10000,0);
+  // ── 근무 블럭 (직원카드 ↔ 근무표 동기화) ──
+  const SEC_MODS={점심:MODULES.filter(m=>m.section==="점심").map(m=>m.key),
+                  저녁:MODULES.filter(m=>m.section==="저녁").map(m=>m.key)};
+  const shiftOn=(id,day,which)=>{
+    const sec=which==="L"?"점심":"저녁";
+    return SEC_MODS[sec].some(mk=>(schedule[mk]?.[day]||[]).includes(id));
+  };
+  const toggleShift=(id,day,which)=>{
+    const s=byId(staff,id); if(!s) return;
+    const sec=which==="L"?"점심":"저녁";
+    const on=shiftOn(id,day,which);
+    setSchedule(prev=>{
+      const nsc=JSON.parse(JSON.stringify(prev));
+      if(on){
+        SEC_MODS[sec].forEach(mk=>{
+          const arr=nsc[mk]?.[day];
+          if(Array.isArray(arr)) nsc[mk][day]=arr.filter(x=>x!==id);
+        });
+      }else{
+        const mk=sec+"-"+(s.position==="hall"?"홀":"주방");
+        if(!nsc[mk]) nsc[mk]={};
+        const arr=nsc[mk][day]||[];
+        if(!arr.includes(id)) arr.push(id);
+        nsc[mk][day]=arr;
+      }
+      save("dc7-sched",nsc); return nsc;
+    });
+  };
+  const daysOf=(s)=>DAYS_ALL.filter(d=>shiftOn(s.id,d,"L")||shiftOn(s.id,d,"D"));
+  const hoursOf=(s)=>{
+    if(s.type==="사장") return 0;
+    let total=0;
+    DAYS_ALL.forEach(d=>{
+      const set=new Set();
+      if(shiftOn(s.id,d,"L")){const t=effTime(s,d,"점심"); if(t&&t!=="-") set.add(t);}
+      if(shiftOn(s.id,d,"D")){const t=effTime(s,d,"저녁"); if(t&&t!=="-") set.add(t);}
+      let h=0; set.forEach(t=>{h+=parseHours(t);});
+      if(h>=9) h-=1;
+      total+=h;
+    });
+    return Math.round(total*10)/10;
+  };
+
+  const laborCost=staff.filter(s=>s.type!=="사장").reduce((sum,s)=>sum+calcPay(s,hoursOf(s)).gross/10000,0);
 
   const monthStats=(y,m)=>{
     let total=0,cnt=0;
@@ -893,7 +950,6 @@ export default function App(){
 
     // 런 계산: 같은 사람+같은 시간이 연속되면 하나의 블록
     const packModule=(mk)=>{
-      const expected=expectedPosition(mk);
       const daily=weekDates.map(d=>resolveModule(mk,d));
       const baseDaily=weekDates.map(d=>schedule[mk]?.[DOW_KR[d.getDay()]]||[]);
       const runs=[];
@@ -904,14 +960,13 @@ export default function App(){
           const st=byId(staff,id);
           const tm=timeAt(mk,st,i2);
           const changed0=!baseDaily[i2].includes(id);
-          const mismatch=!!st&&st.position!==expected; // ← 포지션 불일치 감지
           let j2=i2;
           while(j2<7&&daily[j2].ids.includes(id)
             &&timeAt(mk,st,j2)===tm
             &&(!baseDaily[j2].includes(id))===changed0){
             seen.add(id+"_"+j2); j2++;
           }
-          runs.push({id,st,start:i2,len:j2-i2,tm,changed:changed0,mismatch});
+          runs.push({id,st,start:i2,len:j2-i2,tm,changed:changed0});
         }
       }
       runs.sort((a,b)=>b.len-a.len||a.start-b.start);
@@ -944,7 +999,7 @@ export default function App(){
               style={{background:C.s2,border:`1px solid ${C.border}`,color:C.text,padding:"5px 10px",borderRadius:8,cursor:"pointer"}}>›</button>
           </div>
           <div style={{fontSize:10,color:C.text3,marginBottom:6}}>
-            아무 칸이나 탭 → 그 날짜·구역 인원 변경 · <span style={{color:C.accent2}}>주황 테두리</span> = 변동된 날 · <span style={{color:C.red}}>빨간 ⚠</span> = 포지션(홀/주방) 불일치 · 배치는 자동(긴 근무가 위)
+            아무 칸이나 탭 → 그 날짜·구역 인원 변경 · <span style={{color:C.accent2}}>주황 테두리</span> = 변동된 날 · 배치는 자동(긴 근무가 위)
           </div>
 
           {/* 요일+날짜 헤더 */}
@@ -993,21 +1048,19 @@ export default function App(){
                         {/* 오버레이: 근무 블록 (클릭은 배경으로 통과) */}
                         {row.map((r,rj)=>{
                           const col=r.st?.color||"#888";
-                          const edgeColor=r.mismatch?C.red:(r.changed?C.accent2:col);
                           return (
                             <div key={rj} style={{position:"absolute",top:0,bottom:0,pointerEvents:"none",
                               left:`calc(32px + (100% - 32px) * ${r.start} / 7)`,
                               width:`calc((100% - 32px) * ${r.len} / 7 - ${GAP}px)`,
                               background:"#181c20"}}>
                               <div style={{width:"100%",height:"100%",
-                                background:col+"28",
-                                border:r.mismatch?`1.5px solid ${C.red}`:(r.changed?`1px solid ${C.accent2}`:undefined),
-                                borderLeft:`3px solid ${edgeColor}`,
+                                background:col+"28",borderLeft:`3px solid ${r.changed?C.accent2:col}`,
+                                border:r.changed?`1px solid ${C.accent2}`:undefined,
+                                borderLeftWidth:3,borderLeftStyle:"solid",borderLeftColor:r.changed?C.accent2:col,
                                 borderRadius:6,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
                                 position:"relative"}}>
-                                {r.mismatch&&<span style={{position:"absolute",top:1,left:4,fontSize:9,color:C.red,fontWeight:700}}>⚠</span>}
-                                {r.changed&&!r.mismatch&&<span style={{position:"absolute",top:1,right:4,fontSize:9,color:C.accent2,fontWeight:700}}>!</span>}
-                                <span style={{fontSize:10,fontWeight:700,color:r.mismatch?C.red:col,lineHeight:1.2}}>{r.st?.name||"?"}</span>
+                                {r.changed&&<span style={{position:"absolute",top:1,right:4,fontSize:9,color:C.accent2,fontWeight:700}}>!</span>}
+                                <span style={{fontSize:10,fontWeight:700,color:col,lineHeight:1.2}}>{r.st?.name||"?"}</span>
                                 {r.tm&&<span style={{fontSize:7,color:col,opacity:.75,marginTop:1}}>{r.tm}</span>}
                               </div>
                             </div>
@@ -1184,7 +1237,7 @@ export default function App(){
     const workers=rows.filter(x=>!x.isOwner);
     const totalGross=workers.reduce((a,x)=>a+x.gross,0);
     const totalEmp=workers.reduce((a,x)=>a+x.gross+(x.empAdd||0),0);
-    const contractTotal=workers.reduce((a,x)=>a+calcPay(x.s).gross,0);
+    const contractTotal=workers.reduce((a,x)=>a+calcPay(x.s,hoursOf(x.s)).gross,0);
     const fmtDates=(arr)=>arr.map(d=>`${d}일`).join(", ");
 
     return (
@@ -1459,7 +1512,7 @@ export default function App(){
               </button>
             </div>
           </div>
-          {staff.map(s=><StaffCard key={s.id} s={s} updateStaff={updateStaff} removeStaff={removeStaff}/>)}
+          {staff.map(s=><StaffCard key={s.id} s={s} updateStaff={updateStaff} removeStaff={removeStaff} days={daysOf(s)} weeklyH={hoursOf(s)} shiftOn={shiftOn} toggleShift={toggleShift}/>)}
         </>}
 
         {page==="pay"&&renderPayroll()}
