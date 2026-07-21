@@ -25,8 +25,8 @@ const INIT_SCHEDULE = {
   // 요일별 근무 인원 목록만 입력. 배치(행)는 자동 계산됨
   "점심-주방": {월:[1,2],화:[1,2],수:[1,2],목:[1,100],금:[1,100],토:[9,100,10],일:[9,100,10]},
   "점심-홀":   {월:[3],화:[3],수:[3],목:[3],금:[3],토:[11],일:[11]},
-  "저녁-주방": {월:[1,5,7],화:[1,5,7],수:[1,4,7],목:[100,4,7],금:[100,4,7],토:[100,9],일:[100,9]},
-  "저녁-홀":   {월:[8],화:[12],수:[12],목:[13],금:[13],토:[10],일:[10]},
+  "저녁-주방": {월:[1,5,7],화:[1,5,7],수:[1,4,7],목:[100,4,7],금:[100,4,7],토:[100,9,10],일:[100,9,10]},
+  "저녁-홀":   {월:[8],화:[12],수:[12],목:[13],금:[13],토:[8],일:[8]},
 };
 
 const INIT_STAFF = [
@@ -743,7 +743,7 @@ export default function App(){
     (async()=>{
       try{
         const [r,rs,rsc,rov,rdov]=await Promise.all([
-          kvGet("dc5-sales"),kvGet("dc5-staff"),kvGet("dc7-sched"),kvGet("dc5-ov"),kvGet("dc7-dov")
+          kvGet("dc5-sales"),kvGet("dc5-staff"),kvGet("dc8-sched"),kvGet("dc5-ov"),kvGet("dc7-dov")
         ]);
         if(r) setSales({...EXCEL_SALES,...r});
         if(rs) setStaff(rs);
@@ -771,7 +771,7 @@ export default function App(){
               nsc[mo.key][day]=arr.filter(x=>x!==id);
             }
           }));
-          save("dc7-sched",nsc);
+          save("dc8-sched",nsc);
           return nsc;
         });
       }
@@ -783,7 +783,7 @@ export default function App(){
   const setFixedModule=(moduleKey,dayName,ids)=>{
     setSchedule(prev=>{
       const ns={...prev,[moduleKey]:{...prev[moduleKey],[dayName]:ids}};
-      save("dc7-sched",ns); return ns;
+      save("dc8-sched",ns); return ns;
     });
   };
   // 특정 날짜 인원 변경(대타)
@@ -840,7 +840,7 @@ export default function App(){
         const arr=nsc[mo.key]?.[day];
         if(Array.isArray(arr)) nsc[mo.key][day]=arr.filter(x=>x!==id);
       }));
-      save("dc7-sched",nsc);
+      save("dc8-sched",nsc);
       return nsc;
     });
   };
@@ -870,7 +870,7 @@ export default function App(){
         if(!arr.includes(id)) arr.push(id);
         nsc[mk][day]=arr;
       }
-      save("dc7-sched",nsc); return nsc;
+      save("dc8-sched",nsc); return nsc;
     });
   };
   const daysOf=(s)=>DAYS_ALL.filter(d=>shiftOn(s.id,d,"L")||shiftOn(s.id,d,"D"));
@@ -1488,7 +1488,7 @@ export default function App(){
               <button onClick={()=>{
                 if(!confirm("근무표를 기본 상태로 초기화할까요?\n날짜별 변동 기록은 유지됩니다.")) return;
                 setSchedule(JSON.parse(JSON.stringify(INIT_SCHEDULE)));
-                save("dc7-sched",INIT_SCHEDULE);
+                save("dc8-sched",INIT_SCHEDULE);
               }} style={{background:C.s2,border:`1px solid ${C.border}`,color:C.text2,borderRadius:10,padding:"8px 12px",fontSize:11,cursor:"pointer",flexShrink:0}}>
                 ↺ 초기화
               </button>
