@@ -11,6 +11,16 @@ const FIXED_COSTS = [
   {label:"대출 할부금",amount:117.833},{label:"포스기",amount:18},{label:"대기앱",amount:5},
 ];
 const FIXED_TOTAL = FIXED_COSTS.reduce((a,b)=>a+b.amount,0);
+
+// 채널별 정산율(%) 기본값: 매출 중 (재료비·플랫폼비용 제외 후) 남는 비율
+// 쿠팡: 2026.6월 실정산 분석 — 주문 15,891,700원 중 입금 10,450,458원 = 실효 65.8%
+//   (중개 7.78% + 결제 2.84% + 배달비 12.09% + VAT + 광고 3.92% + 상점쿠폰)
+//   원가율 35% 가정 → 30.8% ≈ 31
+// 배민: 2026.6월 정산명세서 — 입금 9,322,497원, 총매출 역산 약 12,969,000원(중개 7.8% 가정)
+//   = 실효 71.9% (수수료 11.1% + 배달비 12.3% + 쿠폰 1.9% + 부가세 2.2% + 광고 0.7%)
+//   원가율 35% 가정 → 36.9% ≈ 37
+// 홀: 원가 35% + 카드수수료 1.5% 제외 → 63
+const DEFAULT_RATES = { hall:63, baemin:37, coupang:31 };
 const DAYS_ALL = ["월","화","수","목","금","토","일"];
 const DOW_KR = ["일","월","화","수","목","금","토"];
 
@@ -753,6 +763,8 @@ export default function App(){
   const [cellModal,setCellModal]=useState(null);
   const [weekAnchor,setWeekAnchor]=useState(getMonday(new Date()));
   const [payDate,setPayDate]=useState(new Date());
+  const [rates,setRates]=useState(DEFAULT_RATES);
+  const [ratesModal,setRatesModal]=useState(false);
   const [photoTab,setPhotoTab]=useState("매출");
   const [ready,setReady]=useState(false);
 
@@ -939,13 +951,21 @@ export default function App(){
   const laborCost=staff.filter(s=>s.type!=="사장").reduce((sum,s)=>sum+calcPay(s,hoursOf(s)).gross/10000,0);
 
   const monthStats=(y,m)=>{
-    let total=0,cnt=0;
+    let total=0,cnt=0,hallT=0,baeminT=0,coupangT=0;
     Object.keys(sales).filter(k=>k.startsWith(`${y}-${m+1}-`)).forEach(k=>{
       const d=sales[k],t=(d.hall||0)+(d.baemin||0)+(d.coupang||0);
-      if(t>0){total+=t;cnt++;}
+      if(t>0){
+        total+=t; cnt++;
+        hallT+=d.hall||0; baeminT+=d.baemin||0; coupangT+=d.coupang||0;
+      }
     });
-    const net=(total*0.65)-FIXED_TOTAL-laborCost;
-    return {total,cnt,avg:cnt?total/cnt:0,net};
+    // 채널별 정산율 적용 마진
+    const hallNet=hallT*rates.hall/100;
+    const baeminNet=baeminT*rates.baemin/100;
+    const coupangNet=coupangT*rates.coupang/100;
+    const margin=hallNet+baeminNet+coupangNet;
+    const net=margin-FIXED_TOTAL-laborCost;
+    return {total,cnt,avg:cnt?total/cnt:0,net,hallT,baeminT,coupangT,hallNet,baeminNet,coupangNet,margin};
   };
   const st=monthStats(calDate.getFullYear(),calDate.getMonth());
 
@@ -1427,11 +1447,37 @@ export default function App(){
             ))}
           </div>
           <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:14,marginBottom:12}}>
-            <div style={{fontSize:11,color:C.text2,marginBottom:6}}>수입 계산식</div>
-            <div style={{fontSize:12,color:C.text3,lineHeight:2}}>
-              (월총매출 × 0.65) − 고정비 − 인건비<br/>
-              = ({st.total.toFixed(1)} × 0.65) − {FIXED_TOTAL.toFixed(1)} − {laborCost.toFixed(1)}<br/>
-              <span style={{color:st.net>=0?C.green:C.red,fontWeight:700,fontSize:15}}>= {st.net.toFixed(1)} 만원</span>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+              <div style={{fontSize:11,color:C.text2}}>수입 계산식 (채널별 정산율)</div>
+              <button onClick={()=>setRatesModal(true)}
+                style={{background:C.s2,border:`1px solid ${C.border}`,color:C.text2,borderRadius:8,
+                  padding:"5px 10px",fontSize:10,cursor:"pointer"}}>⚙️ 정산율 설정</button>
+            </div>
+            {[
+              ["홀",st.hallT,rates.hall,st.hallNet,C.blue],
+              ["배민",st.baeminT,rates.baemin,st.baeminNet,C.green],
+              ["쿠팡이츠",st.coupangT,rates.coupang,st.coupangNet,C.accent2],
+            ].map(([l,t,r,n,c])=>(
+              <div key={l} style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+                padding:"5px 0",borderBottom:`1px solid ${C.border}`,fontSize:11}}>
+                <span style={{color:c,fontWeight:600}}>{l}</span>
+                <span style={{color:C.text3}}>{t.toFixed(0)}만 × {r}%</span>
+                <span style={{color:C.text,fontWeight:600}}>{n.toFixed(1)}만</span>
+              </div>
+            ))}
+            <div style={{display:"flex",justifyContent:"space-between",padding:"6px 0",fontSize:11,borderBottom:`1px solid ${C.border}`}}>
+              <span style={{color:C.text2}}>마진 합계</span>
+              <span style={{fontWeight:700}}>{st.margin.toFixed(1)}만</span>
+            </div>
+            <div style={{display:"flex",justifyContent:"space-between",padding:"5px 0",fontSize:11}}>
+              <span style={{color:C.text2}}>− 고정비</span><span style={{color:C.red}}>−{FIXED_TOTAL.toFixed(1)}만</span>
+            </div>
+            <div style={{display:"flex",justifyContent:"space-between",padding:"5px 0",fontSize:11,borderBottom:`1px solid ${C.border}`}}>
+              <span style={{color:C.text2}}>− 인건비</span><span style={{color:C.red}}>−{laborCost.toFixed(1)}만</span>
+            </div>
+            <div style={{display:"flex",justifyContent:"space-between",padding:"8px 0 2px"}}>
+              <span style={{fontSize:12,fontWeight:700}}>사장 예상수입</span>
+              <span style={{color:st.net>=0?C.green:C.red,fontWeight:800,fontSize:16}}>{st.net.toFixed(1)}만원</span>
             </div>
           </div>
           <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:14,marginBottom:12}}>
@@ -1471,7 +1517,7 @@ export default function App(){
               ))}
             </div>
             <div style={{fontSize:10,color:C.text3,borderTop:`1px solid ${C.border}`,paddingTop:8}}>
-              (총매출 × 0.65) − 고정비({FIXED_TOTAL.toFixed(0)}만) − 인건비({laborCost.toFixed(0)}만)
+              홀{rates.hall}% + 배민{rates.baemin}% + 쿠팡{rates.coupang}% 정산율 적용 − 고정비({FIXED_TOTAL.toFixed(0)}만) − 인건비({laborCost.toFixed(0)}만)
             </div>
           </div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,marginBottom:2}}>
@@ -1596,6 +1642,40 @@ export default function App(){
           <PhotoManager category={photoTab}/>
         </>}
       </div>
+
+      {ratesModal&&<>
+        <div onClick={()=>setRatesModal(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.75)",zIndex:100}}/>
+        <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,
+          background:C.surface,borderRadius:"20px 20px 0 0",padding:"16px 20px 28px",zIndex:101}}>
+          <div style={{width:40,height:4,background:C.border,borderRadius:2,margin:"0 auto 14px"}}/>
+          <div style={{fontSize:16,fontWeight:700,marginBottom:4}}>채널별 정산율 설정</div>
+          <div style={{fontSize:11,color:C.text3,lineHeight:1.7,marginBottom:14}}>
+            정산율 = 매출 100 중 <b style={{color:C.text2}}>재료비·수수료·배달비를 뺀 뒤 남는 비율(%)</b>.<br/>
+            플랫폼 정산서 기준: (실입금액 − 그 매출의 재료비) ÷ 매출 × 100
+          </div>
+          {[["hall","🏠 홀 (카드수수료만 · 기본 63)",C.blue],["baemin","🛵 배달의민족 (26.6월 실측 기반 37)",C.green],["coupang","🚙 쿠팡이츠 (26.6월 실측 기반 31)",C.accent2]].map(([k,l,c])=>(
+            <div key={k} style={{marginBottom:12}}>
+              <div style={{fontSize:12,color:c,marginBottom:4,fontWeight:600}}>{l}</div>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <input type="number" min="0" max="100" step="0.5" inputMode="decimal" defaultValue={rates[k]}
+                  onBlur={e=>{
+                    const v=Math.max(0,Math.min(100,parseFloat(e.target.value)||0));
+                    const nr={...rates,[k]:v};
+                    setRates(nr); kvSet("dc-rates",nr).catch(()=>{});
+                  }}
+                  style={{flex:1,background:C.s3,border:`1px solid ${C.border}`,borderRadius:10,
+                    padding:"11px 14px",color:C.text,fontSize:16,fontWeight:700,outline:"none",textAlign:"center"}}/>
+                <span style={{fontSize:14,color:C.text2}}>%</span>
+              </div>
+            </div>
+          ))}
+          <div style={{background:C.s3,borderRadius:8,padding:"8px 12px",fontSize:10,color:C.text3,lineHeight:1.7,marginBottom:14}}>
+            💡 배민 37%·쿠팡 31%는 2026년 6월 실정산 분석값이에요 (실효입금률 배민 71.9%·쿠팡 65.8% − 원가 35%). 원가율이 35%와 다르면 그 차이만큼 조정하세요.
+          </div>
+          <button onClick={()=>setRatesModal(false)}
+            style={{width:"100%",padding:12,borderRadius:10,border:"none",background:C.accent,color:"white",fontWeight:600,cursor:"pointer"}}>완료</button>
+        </div>
+      </>}
 
       <SalesModal modal={salesModal} calDate={calDate} sales={sales} onSave={saveSalesData} onClose={()=>setSalesModal(null)}/>
       <CellEditModal modal={cellModal} staff={staff}
