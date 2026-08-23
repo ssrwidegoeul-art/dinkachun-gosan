@@ -149,6 +149,24 @@ const effTime=(s,dayName,section)=>{
   return (dt&&dt.dinner!==undefined)?dt.dinner:s.dinnerTime;
 };
 
+// 근무표 정리: 삭제된 직원(존재하지 않는 id)이거나 근무일(days)이 아닌 요일에 배정된 직원은 제거
+const cleanSchedule=(sc,staffList)=>{
+  if(!sc||!staffList||staffList.length===0) return null;
+  const known=new Set(staffList.map(s=>s.id));
+  const okDay=(id,day)=>{const s=byId(staffList,id);return !!s&&(s.days||[]).includes(day);};
+  const out={}; let dirty=false;
+  MODULES.forEach(mo=>{
+    out[mo.key]={};
+    DAYS_ALL.forEach(day=>{
+      const arr=sc[mo.key]?.[day]||[];
+      const f=arr.filter(x=>known.has(x)&&okDay(x,day));
+      if(f.length!==arr.length) dirty=true;
+      out[mo.key][day]=f;
+    });
+  });
+  return dirty?out:null;
+};
+
 // "11:00–14:00" 같은 문자열 → 시간(h). 어떤 대시/물결이든 허용
 const parseHours=(t)=>{
   const m=/(\d{1,2}):(\d{2})\s*[^\d]{1,3}\s*(\d{1,2}):(\d{2})/.exec(t||"");
@@ -770,7 +788,7 @@ export default function App(){
         ]);
         if(r) setSales({...EXCEL_SALES,...r});
         if(rs) setStaff(rs);
-        if(rsc) setSchedule(rsc);
+        if(rsc){ const c=rs?cleanSchedule(rsc,rs):null; setSchedule(c||rsc); if(c) kvSet("dc8-sched",c).catch(()=>{}); }
         if(rov) setOverrides(rov);
         if(rdov) setDayOverride(rdov);
       }catch(e){console.error("로드 실패:",e);}
@@ -1575,8 +1593,9 @@ export default function App(){
               </div>
               <button onClick={()=>{
                 if(!confirm("근무표를 기본 상태로 초기화할까요?\n날짜별 변동 기록은 유지됩니다.")) return;
-                setSchedule(JSON.parse(JSON.stringify(INIT_SCHEDULE)));
-                save("dc8-sched",INIT_SCHEDULE);
+                const nsc=cleanSchedule(INIT_SCHEDULE,staff)||INIT_SCHEDULE;
+                setSchedule(JSON.parse(JSON.stringify(nsc)));
+                save("dc8-sched",nsc);
               }} style={{background:C.s2,border:`1px solid ${C.border}`,color:C.text2,borderRadius:10,padding:"8px 12px",fontSize:11,cursor:"pointer",flexShrink:0}}>
                 ↺ 초기화
               </button>
