@@ -125,17 +125,16 @@ const effTime=(s,dayName,section)=>{
   return (dt&&dt.dinner!==undefined)?dt.dinner:s.dinnerTime;
 };
 
-// 근무표 정리: 삭제된 직원(존재하지 않는 id)이거나 근무일(days)이 아닌 요일에 배정된 직원은 제거
+// 근무표 정리: 삭제된 직원(존재하지 않는 id) 배정만 제거
 const cleanSchedule=(sc,staffList)=>{
   if(!sc||!staffList||staffList.length===0) return null;
   const known=new Set(staffList.map(s=>s.id));
-  const okDay=(id,day)=>{const s=byId(staffList,id);return !!s&&(s.days||[]).includes(day);};
   const out={}; let dirty=false;
   MODULES.forEach(mo=>{
     out[mo.key]={};
     DAYS_ALL.forEach(day=>{
       const arr=sc[mo.key]?.[day]||[];
-      const f=arr.filter(x=>known.has(x)&&okDay(x,day));
+      const f=arr.filter(x=>known.has(x));
       if(f.length!==arr.length) dirty=true;
       out[mo.key][day]=f;
     });
