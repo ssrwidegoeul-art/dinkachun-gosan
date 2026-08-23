@@ -155,6 +155,8 @@ const parseHours=(t)=>{
 
 const TIME_OPTS=(()=>{const a=[];for(let h=6;h<=23;h++){a.push(String(h).padStart(2,"0")+":00");a.push(String(h).padStart(2,"0")+":30");}a.push("24:00");return a;})();
 const splitRange=(v)=>{const m=/(\d{1,2}:\d{2})\s*[^\d]{1,3}\s*(\d{1,2}:\d{2})/.exec(v||"");return m?[m[1].padStart(5,"0"),m[2].padStart(5,"0")]:[null,null];};
+// 시간 문자열 정규화: "10:00–15:00" / "10:00~15:00" 등 구분기호와 무관하게 동일 시간으로 비교
+const normTime=(t)=>{const [a,b]=splitRange(t);return (a&&b)?a+"-"+b:(t||"").trim();};
 
 function TimeRangePicker({value,onChange,allowDefault,accent}){
   const [st,en]=splitRange(value);
@@ -951,8 +953,8 @@ export default function App(){
     let total=0;
     DAYS_ALL.forEach(d=>{
       const set=new Set();
-      if(shiftOn(s.id,d,"L")){const t=effTime(s,d,"점심"); if(t&&t!=="-") set.add(t);}
-      if(shiftOn(s.id,d,"D")){const t=effTime(s,d,"저녁"); if(t&&t!=="-") set.add(t);}
+      if(shiftOn(s.id,d,"L")){const t=effTime(s,d,"점심"); if(t&&t!=="-") set.add(normTime(t));}
+      if(shiftOn(s.id,d,"D")){const t=effTime(s,d,"저녁"); if(t&&t!=="-") set.add(normTime(t));}
       let h=0; set.forEach(t=>{h+=parseHours(t);});
       if(h>=9) h-=1;
       total+=h;
@@ -1038,11 +1040,11 @@ export default function App(){
         for(const id of daily[i2].ids){
           if(seen.has(id+"_"+i2)) continue;
           const st=byId(staff,id);
-          const tm=timeAt(mk,st,i2);
+          const tm=normTime(timeAt(mk,st,i2));
           const changed0=!baseDaily[i2].includes(id);
           let j2=i2;
           while(j2<7&&daily[j2].ids.includes(id)
-            &&timeAt(mk,st,j2)===tm
+            &&normTime(timeAt(mk,st,j2))===tm
             &&(!baseDaily[j2].includes(id))===changed0){
             seen.add(id+"_"+j2); j2++;
           }
@@ -1265,7 +1267,7 @@ export default function App(){
             const t=effTime(st,dayName,mo.section);
             if(t&&t!=="-"){
               if(!actualSlots[x]) actualSlots[x]=new Set();
-              actualSlots[x].add(t);
+              actualSlots[x].add(normTime(t));
             }
           }
         });
