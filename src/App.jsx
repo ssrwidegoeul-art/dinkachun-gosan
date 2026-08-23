@@ -748,11 +748,11 @@ export default function App(){
   const [staff,setStaff]=useState(INIT_STAFF);
   const [schedule,setSchedule]=useState(INIT_SCHEDULE);
   const [sales,setSales]=useState(EXCEL_SALES);
-  const [calDate,setCalDate]=useState(new Date(2026,6,1));
+  const [calDate,setCalDate]=useState(new Date());
   const [salesModal,setSalesModal]=useState(null);
   const [overrides,setOverrides]=useState({});
   const [dayOverride,setDayOverride]=useState({});
-  const [schedCalDate,setSchedCalDate]=useState(new Date(2026,6,1));
+  const [schedCalDate,setSchedCalDate]=useState(new Date());
   const [schedModal,setSchedModal]=useState(null);
   const [cellModal,setCellModal]=useState(null);
   const [weekAnchor,setWeekAnchor]=useState(getMonday(new Date()));
