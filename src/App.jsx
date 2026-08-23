@@ -25,30 +25,6 @@ const MODULES = [
   {key:"저녁-홀",section:"저녁",label:"홀"},
 ];
 
-const INIT_SCHEDULE = {
-  // 요일별 근무 인원 목록만 입력. 배치(행)는 자동 계산됨
-  "점심-주방": {월:[1,2],화:[1,2],수:[1,2],목:[1,100],금:[1,100],토:[9,100,10],일:[9,100,10]},
-  "점심-홀":   {월:[3],화:[3],수:[3],목:[3],금:[3],토:[11],일:[11]},
-  "저녁-주방": {월:[1,5],화:[1,5],수:[1,7],목:[4,7],금:[4,7],토:[9,10],일:[9,10]},
-  "저녁-홀":   {월:[8],화:[12],수:[12],목:[13],금:[13],토:[8],일:[8]},
-};
-
-const INIT_STAFF = [
-  {id:1,name:"승룡",role:"사장",position:"kitchen",wage:0,type:"사장",insurance:"-",days:["월","화","수","목","금"],lunchTime:"10:00–15:00",dinnerTime:"16:30–21:30",phone:"",contractFile:null,memo:"점심 월~금 / 저녁 월화수 (목금 오전만)",color:"#3dba7a",weeklyHours:0,dayTimes:{"목":{dinner:"-"},"금":{dinner:"-"}}},
-  {id:2,name:"나래",role:"사모님",position:"kitchen",wage:0,type:"사장",insurance:"-",days:["월","화","수"],lunchTime:"10:00–15:00",dinnerTime:"-",phone:"",contractFile:null,memo:"점심만 월화수",color:"#4fc3f7",weeklyHours:0},
-  {id:100,name:"이현민",role:"주방실장",position:"manager",wage:3000000,type:"월급",insurance:"4대보험",days:["목","금","토","일"],lunchTime:"10:00–21:30",dinnerTime:"10:00–21:30",phone:"",contractFile:null,memo:"월 300만원 확정 / 월차 없음(계약서 명시)",color:"#b39ddb",weeklyHours:42},
-  {id:3,name:"자윤",role:"홀",position:"hall",wage:11000,type:"시급",insurance:"단기(3.3%)",days:["월","화","수","목","금"],lunchTime:"11:00–14:00",dinnerTime:"-",phone:"",contractFile:null,memo:"",color:"#80cbc4",weeklyHours:15},
-  {id:4,name:"성현",role:"주방",position:"kitchen",wage:12000,type:"시급",insurance:"4대보험",days:["수","목","금"],lunchTime:"-",dinnerTime:"16:30–21:30",phone:"",contractFile:null,memo:"수: 주방3 / 목금: 주방2",color:"#ff8a65",weeklyHours:15},
-  {id:5,name:"정희",role:"주방",position:"kitchen",wage:12000,type:"시급",insurance:"단기(3.3%)",days:["월","화"],lunchTime:"-",dinnerTime:"16:30–21:30",phone:"",contractFile:null,memo:"",color:"#f06292",weeklyHours:10},
-  {id:7,name:"정은",role:"주방",position:"kitchen",wage:12000,type:"시급",insurance:"단기(3.3%)",days:["월","화","수","목","금"],lunchTime:"-",dinnerTime:"17:30–21:30",phone:"",contractFile:null,memo:"",color:"#ffd54f",weeklyHours:20},
-  {id:8,name:"인호",role:"홀",position:"hall",wage:11000,type:"시급",insurance:"단기(3.3%)",days:["월","토","일"],lunchTime:"-",dinnerTime:"16:30–21:30",phone:"",contractFile:null,memo:"",color:"#4dd0e1",weeklyHours:15},
-  {id:9,name:"세혁",role:"주방",position:"kitchen",wage:12000,type:"시급",insurance:"단기(3.3%)",days:["토","일"],lunchTime:"10:00–21:00",dinnerTime:"10:00–21:00",phone:"",contractFile:null,memo:"중간 1시간 휴무",color:"#ffb74d",weeklyHours:20},
-  {id:10,name:"병무",role:"주방",position:"kitchen",wage:12000,type:"시급",insurance:"단기(3.3%)",days:["토","일"],lunchTime:"11:00–21:30",dinnerTime:"11:00–21:30",phone:"",contractFile:null,memo:"중간 1시간 휴무",color:"#ef9a9a",weeklyHours:21},
-  {id:11,name:"서빈",role:"홀",position:"hall",wage:11000,type:"시급",insurance:"단기(3.3%)",days:["토","일"],lunchTime:"10:00–15:00",dinnerTime:"-",phone:"",contractFile:null,memo:"",color:"#90caf9",weeklyHours:10},
-  {id:12,name:"혜지",role:"홀",position:"hall",wage:11000,type:"시급",insurance:"단기(3.3%)",days:["화","수"],lunchTime:"-",dinnerTime:"16:30–21:30",phone:"",contractFile:null,memo:"",color:"#ce93d8",weeklyHours:10},
-  {id:13,name:"호준",role:"홀",position:"hall",wage:11000,type:"시급",insurance:"단기(3.3%)",days:["목","금"],lunchTime:"-",dinnerTime:"16:30–21:30",phone:"",contractFile:null,memo:"",color:"#a5d6a7",weeklyHours:10},
-];
-
 const EXCEL_SALES = {
   "2025-1-1":{hall:40.9,baemin:76.0,coupang:0},"2025-1-2":{hall:46.5,baemin:25.9,coupang:0},
   "2025-1-3":{hall:96.8,baemin:31.1,coupang:0},"2025-1-4":{hall:60.0,baemin:50.2,coupang:0},
@@ -763,8 +739,10 @@ export default function App(){
       </div>
     );
   }
-  const [staff,setStaff]=useState(INIT_STAFF);
-  const [schedule,setSchedule]=useState(INIT_SCHEDULE);
+  const [staff,setStaff]=useState([]);
+  const [schedule,setSchedule]=useState({});
+  const [syncing,setSyncing]=useState(false);
+  const [syncMsg,setSyncMsg]=useState("");
   const [sales,setSales]=useState(EXCEL_SALES);
   const [calDate,setCalDate]=useState(new Date());
   const [salesModal,setSalesModal]=useState(null);
@@ -888,6 +866,28 @@ export default function App(){
       save("dc8-sched",nsc);
       return nsc;
     });
+  };
+
+  // ── 최신화: 직원 탭 변경사항을 다시 불러와 근무표에 반영 ──
+  const refreshSchedule=async()=>{
+    if(syncing) return;
+    setSyncing(true); setSyncMsg("");
+    try{
+      const [rs2,rsc2]=await Promise.all([kvGet("dc5-staff"),kvGet("dc8-sched")]);
+      if(rs2) setStaff(rs2);
+      if(rsc2){
+        const c=rs2?cleanSchedule(rsc2,rs2):null;
+        const n=c||rsc2;
+        setSchedule(n);
+        if(c) await kvSet("dc8-sched",c);
+      }
+      setSyncMsg("✓ 최신화 완료 — 직원 변경사항이 근무표에 반영됨");
+    }catch(e){
+      console.error("최신화 실패:",e);
+      setSyncMsg("최신화 실패 — 네트워크 확인 후 다시 눌러주세요");
+    }
+    setSyncing(false);
+    setTimeout(()=>setSyncMsg(""),3000);
   };
 
   // ── 근무 블럭 (직원카드 ↔ 근무표 동기화) ──
@@ -1589,18 +1589,14 @@ export default function App(){
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
               <div>
                 <div style={{fontSize:18,fontWeight:700}}>주간 근무표</div>
-                <div style={{fontSize:11,color:C.text2,marginTop:2}}>인원만 입력 → 배치 자동 · 긴 연속근무가 위로</div>
+                <div style={{fontSize:11,color:C.text2,marginTop:2}}>직원 탭에서 변경 후 ⟳ 최신화를 누르면 반영됩니다</div>
               </div>
-              <button onClick={()=>{
-                if(!confirm("근무표를 기본 상태로 초기화할까요?\n날짜별 변동 기록은 유지됩니다.")) return;
-                const nsc=cleanSchedule(INIT_SCHEDULE,staff)||INIT_SCHEDULE;
-                setSchedule(JSON.parse(JSON.stringify(nsc)));
-                save("dc8-sched",nsc);
-              }} style={{background:C.s2,border:`1px solid ${C.border}`,color:C.text2,borderRadius:10,padding:"8px 12px",fontSize:11,cursor:"pointer",flexShrink:0}}>
-                ↺ 초기화
+              <button onClick={refreshSchedule} disabled={syncing}
+                style={{background:C.s2,border:`1px solid ${C.border}`,color:C.text2,borderRadius:10,padding:"8px 12px",fontSize:11,cursor:"pointer",flexShrink:0,opacity:syncing?0.6:1}}>
+                ⟳ 최신화
               </button>
             </div>
-            
+            {syncMsg&&<div style={{fontSize:11,color:syncMsg.startsWith("✓")?C.green:C.red,marginTop:4,fontWeight:600}}>{syncMsg}</div>}
           </div>
           {renderScheduleGrid()}
           {renderSchedCalendar()}
