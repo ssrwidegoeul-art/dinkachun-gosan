@@ -977,8 +977,17 @@ export default function App(){
     const baeminNet=baeminT*rates.baemin/100;
     const coupangNet=coupangT*rates.coupang/100;
     const margin=hallNet+baeminNet+coupangNet;
-    const net=margin-FIXED_TOTAL-laborCost;
-    return {total,cnt,avg:cnt?total/cnt:0,net,hallT,baeminT,coupangT,hallNet,baeminNet,coupangNet,margin};
+    const net=margin-FIXED_TOTAL-laborCost; // 현재 수입 (오늘까지)
+    // 예상수입: 현재 매출에 일평균(영업일 기준)이 남은 기간 이어진다고 가정한 월말 전망
+    const avg=cnt?total/cnt:0;
+    const now2=new Date();
+    const isCurMonth=y===now2.getFullYear()&&m===now2.getMonth();
+    const dim=new Date(y,m+1,0).getDate();
+    const remainDays=isCurMonth?Math.max(0,dim-now2.getDate()):0;
+    const projTotal=total+avg*remainDays;
+    const projMargin=total>0?margin*projTotal/total:0;
+    const projNet=projMargin-FIXED_TOTAL-laborCost;
+    return {total,cnt,avg,net,hallT,baeminT,coupangT,hallNet,baeminNet,coupangNet,margin,projTotal,projNet};
   };
   const st=monthStats(calDate.getFullYear(),calDate.getMonth());
 
@@ -1441,8 +1450,9 @@ export default function App(){
             <div style={{fontSize:11,color:C.text2}}>{today.getFullYear()}.{String(today.getMonth()+1).padStart(2,"0")}.{String(today.getDate()).padStart(2,"0")} {DOW_KR[today.getDay()]}요일</div>
           </div>
           <div style={{textAlign:"right"}}>
-            <div style={{fontSize:10,color:C.text3}}>이번달 예상수입</div>
+            <div style={{fontSize:10,color:C.text3}}>현재 수입 (오늘까지)</div>
             <div style={{fontSize:15,fontWeight:700,color:st.net>=0?C.green:C.red}}>{st.net.toFixed(0)}만원</div>
+            <div style={{fontSize:9,color:C.text3}}>월말 예상 {st.projNet.toFixed(0)}만</div>
           </div>
         </div>
       </div>
@@ -1451,7 +1461,7 @@ export default function App(){
         {page==="dash"&&<>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
             {[["이번달 총매출",st.total.toFixed(1)+"만원",C.accent],["일 평균",st.avg.toFixed(1)+"만원",C.text],
-              ["사장 예상수입",st.net.toFixed(1)+"만원",st.net>=0?C.green:C.red],["고정+인건비",(FIXED_TOTAL+laborCost).toFixed(0)+"만원",C.text2],
+              ["현재 수입",st.net.toFixed(1)+"만원",st.net>=0?C.green:C.red],["월말 예상수입",st.projNet.toFixed(1)+"만원",st.projNet>=0?C.green:C.red],
             ].map(([l,v,c])=>(
               <div key={l} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:12}}>
                 <div style={{fontSize:10,color:C.text2,marginBottom:3}}>{l}</div>
@@ -1489,8 +1499,12 @@ export default function App(){
               <span style={{color:C.text2}}>− 인건비</span><span style={{color:C.red}}>−{laborCost.toFixed(1)}만</span>
             </div>
             <div style={{display:"flex",justifyContent:"space-between",padding:"8px 0 2px"}}>
-              <span style={{fontSize:12,fontWeight:700}}>사장 예상수입</span>
+              <span style={{fontSize:12,fontWeight:700}}>현재 수입 (오늘까지)</span>
               <span style={{color:st.net>=0?C.green:C.red,fontWeight:800,fontSize:16}}>{st.net.toFixed(1)}만원</span>
+            </div>
+            <div style={{display:"flex",justifyContent:"space-between",padding:"6px 0 0",borderTop:`1px dashed ${C.border}`}}>
+              <span style={{fontSize:12,fontWeight:700}}>예상 수입 (월말 · 일평균 유지 시)</span>
+              <span style={{color:st.projNet>=0?C.green:C.red,fontWeight:800,fontSize:16}}>{st.projNet.toFixed(1)}만원</span>
             </div>
           </div>
           <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:14,marginBottom:12}}>
@@ -1521,8 +1535,9 @@ export default function App(){
               style={{background:C.s2,border:`1px solid ${C.border}`,color:C.text,padding:"6px 12px",borderRadius:8,cursor:"pointer",fontSize:16}}>›</button>
           </div>
           <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:14,marginBottom:12}}>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:8}}>
-              {[["총매출",st.total.toFixed(1)+"만",C.accent],["일평균",st.avg.toFixed(1)+"만",C.text],["예상수입",st.net.toFixed(1)+"만",st.net>=0?C.green:C.red]].map(([l,v,c])=>(
+            <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8,marginBottom:8}}>
+              {[["총매출",st.total.toFixed(1)+"만",C.accent],["일평균",st.avg.toFixed(1)+"만",C.text],
+                ["현재 수입",st.net.toFixed(1)+"만",st.net>=0?C.green:C.red],["월말 예상수입",st.projNet.toFixed(1)+"만",st.projNet>=0?C.green:C.red]].map(([l,v,c])=>(
                 <div key={l} style={{textAlign:"center"}}>
                   <div style={{fontSize:10,color:C.text2}}>{l}</div>
                   <div style={{fontSize:14,fontWeight:700,color:c}}>{v}</div>
@@ -1530,7 +1545,7 @@ export default function App(){
               ))}
             </div>
             <div style={{fontSize:10,color:C.text3,borderTop:`1px solid ${C.border}`,paddingTop:8}}>
-              홀{rates.hall}% + 배민{rates.baemin}% + 쿠팡{rates.coupang}% 정산율 적용 − 고정비({FIXED_TOTAL.toFixed(0)}만) − 인건비({laborCost.toFixed(0)}만)
+              현재 = 정산 마진(홀{rates.hall}% + 배민{rates.baemin}% + 쿠팡{rates.coupang}%) − 고정비({FIXED_TOTAL.toFixed(0)}만) − 인건비({laborCost.toFixed(0)}만) · 예상 = 현재 + 일평균×남은일수로 월말까지 이어질 때 전망
             </div>
           </div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,marginBottom:2}}>
